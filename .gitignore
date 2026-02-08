@@ -1,0 +1,22 @@
+# Environment files
+.env
+.env.*
+.env.local
+.env.*.local
+
+# Vercel
+.vercel
+
+# Supabase local/temp
+supabase/.temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Auth
+*.auth.json
+
+# Scripts with secrets
+set-escrow-env.sh
+node_modules
