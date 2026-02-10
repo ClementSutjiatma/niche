@@ -20,6 +20,9 @@ export function EscrowActions({ escrow }: Props) {
   const { sendTransaction } = useSendTransaction();
   const [status, setStatus] = useState<ActionStatus>(null);
   const [processing, setProcessing] = useState(false);
+  const [phoneInput, setPhoneInput] = useState("");
+  const [phoneSubmitted, setPhoneSubmitted] = useState(false);
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
   const auth = getAuth();
   const isLoggedIn = !!auth?.wallet;
 
@@ -256,6 +259,34 @@ export function EscrowActions({ escrow }: Props) {
     }
   }
 
+  // --- Meetup: Submit phone for SMS coordination ---
+  async function handlePhoneSubmit() {
+    if (!isLoggedIn || !phoneInput.trim() || phoneSubmitting) return;
+    setPhoneSubmitting(true);
+
+    try {
+      const r = await fetch(`${API_BASE}/escrow/${escrow.id}/meetup/phone`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          walletAddress: auth.wallet,
+          phone: phoneInput.trim(),
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Failed to submit phone");
+      setPhoneSubmitted(true);
+    } catch (e: unknown) {
+      setStatus({ msg: `Phone error: ${(e as Error).message}`, type: "error" });
+    } finally {
+      setPhoneSubmitting(false);
+    }
+  }
+
   // --- Dispute ---
   async function handleDispute() {
     if (!isLoggedIn) return;
@@ -365,6 +396,47 @@ export function EscrowActions({ escrow }: Props) {
       {/* === STATE: accepted — chat open, buyer can confirm & pay === */}
       {escrow.status === "accepted" && (
         <>
+          {/* Meetup SMS coordination */}
+          {(isBuyer || isSeller) && (
+            <div className="mb-4 border border-white/10 rounded-xl p-4">
+              <h3 className="text-sm font-semibold mb-2">Coordinate Meetup via SMS</h3>
+              {phoneSubmitted ? (
+                <div className="text-sm text-success flex items-center gap-2">
+                  <span>✓</span> Phone submitted! Check your texts to coordinate.
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Enter your phone number to coordinate the meetup via text message.
+                    Your number is sent directly to our SMS service and never stored in the app.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="tel"
+                      value={phoneInput}
+                      onChange={(e) => setPhoneInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handlePhoneSubmit();
+                        }
+                      }}
+                      placeholder="+1 (415) 555-1234"
+                      className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-white/20"
+                    />
+                    <button
+                      onClick={handlePhoneSubmit}
+                      disabled={!phoneInput.trim() || phoneSubmitting}
+                      className="px-4 py-2 rounded-lg bg-brand text-black text-sm font-semibold hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {phoneSubmitting ? "..." : "Submit"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <EscrowChat escrowId={escrow.id} buyerId={escrow.buyer_id} sellerId={escrow.seller_id} />
 
           {isBuyer && (

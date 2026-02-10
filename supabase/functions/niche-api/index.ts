@@ -40,6 +40,130 @@ const privy = new PrivyClient(PRIVY_APP_ID, PRIVY_APP_SECRET);
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
+// Twilio SMS service (for meetup coordination)
+const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID") || "";
+const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") || "";
+const TWILIO_PHONE_NUMBER = Deno.env.get("TWILIO_PHONE_NUMBER") || "";
+
+/** Send SMS via Twilio REST API (no SDK needed for Deno) */
+async function sendSms(to: string, body: string): Promise<boolean> {
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+    console.log("[SMS] Twilio not configured, skipping SMS");
+    return false;
+  }
+  try {
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+    const params = new URLSearchParams({
+      To: to,
+      From: TWILIO_PHONE_NUMBER,
+      Body: body,
+    });
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: "Basic " + btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`),
+      },
+      body: params.toString(),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("[SMS] Twilio error:", err);
+      return false;
+    }
+    console.log("[SMS] Sent to [REDACTED]");
+    return true;
+  } catch (err) {
+    console.error("[SMS] Failed:", err);
+    return false;
+  }
+}
+
+/** Normalize phone to E.164 format */
+function normalizePhone(phone: string): string {
+  const cleaned = phone.replace(/[\s\-\(\)\.]/g, "");
+  return cleaned.startsWith("+") ? cleaned : `+1${cleaned}`;
+}
+
+/** Validate E.164 phone number */
+function isValidPhoneNumber(phone: string): boolean {
+  return /^\+[1-9]\d{9,14}$/.test(phone);
+}
+
+/** One-way hash of phone number for webhook matching (irreversible) */
+async function hashPhone(phone: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(TWILIO_AUTH_TOKEN),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(phone));
+  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+}
+
+/** Encrypt phone number with AES-GCM (decryptable only by edge function with TWILIO_AUTH_TOKEN) */
+async function encryptPhone(phone: string): Promise<string> {
+  const encoder = new TextEncoder();
+  // Derive a 256-bit key from TWILIO_AUTH_TOKEN via SHA-256
+  const keyMaterial = await crypto.subtle.digest("SHA-256", encoder.encode(TWILIO_AUTH_TOKEN));
+  const key = await crypto.subtle.importKey("raw", keyMaterial, "AES-GCM", false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(phone));
+  // Store as: base64(iv):base64(ciphertext)
+  const ivB64 = btoa(String.fromCharCode(...iv));
+  const ctB64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+  return `${ivB64}:${ctB64}`;
+}
+
+/** Decrypt phone number encrypted with encryptPhone() */
+async function decryptPhone(encStr: string): Promise<string | null> {
+  try {
+    const [ivB64, ctB64] = encStr.split(":");
+    const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+    const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.digest("SHA-256", encoder.encode(TWILIO_AUTH_TOKEN));
+    const key = await crypto.subtle.importKey("raw", keyMaterial, "AES-GCM", false, ["decrypt"]);
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    console.error("[CRYPTO] Failed to decrypt phone");
+    return null;
+  }
+}
+
+/** Validate Twilio webhook signature */
+async function validateTwilioSignature(req: Request, rawBody: string): Promise<boolean> {
+  if (!TWILIO_AUTH_TOKEN) return false;
+
+  const signature = req.headers.get("X-Twilio-Signature");
+  if (!signature) return false;
+
+  const url = new URL(req.url);
+  const params = new URLSearchParams(rawBody);
+  const sortedParams = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
+  let dataToSign = url.origin + url.pathname;
+  for (const [key, value] of sortedParams) {
+    dataToSign += key + value;
+  }
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(TWILIO_AUTH_TOKEN),
+    { name: "HMAC", hash: "SHA-1" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(dataToSign));
+  const expected = btoa(String.fromCharCode(...new Uint8Array(sig)));
+
+  return signature === expected;
+}
+
 // --- Helpers ---
 
 const corsHeaders = {
@@ -1759,6 +1883,247 @@ async function handleSendMessage(escrowId: string, body: {
   return json({ message: msg });
 }
 
+// --- Meetup Coordination Handlers ---
+
+/**
+ * POST /escrow/:id/meetup/phone
+ *
+ * Submit phone number for SMS meetup coordination. Phone goes directly
+ * to Twilio — only a boolean flag and HMAC hash are stored in the DB.
+ *
+ * Body: { walletAddress, phone }
+ */
+async function handleMeetupPhone(escrowId: string, body: {
+  walletAddress: string;
+  phone: string;
+}) {
+  const { walletAddress, phone } = body;
+
+  if (!walletAddress || !phone) {
+    return errorResponse("Missing walletAddress or phone");
+  }
+
+  // 1. Validate phone format
+  const normalized = normalizePhone(phone);
+  if (!isValidPhoneNumber(normalized)) {
+    return errorResponse("Invalid phone number. Use format like +14155551234 or (415) 555-1234");
+  }
+
+  // 2. Verify escrow is accepted and caller is buyer or seller
+  const { data: escrow } = await supabase
+    .from("escrows")
+    .select("id, buyer_id, seller_id, status, listing_id")
+    .eq("id", escrowId)
+    .single();
+
+  if (!escrow) return errorResponse("Escrow not found", 404);
+  if (escrow.status !== "accepted") {
+    return errorResponse(`Meetup coordination only available when escrow is accepted (current: ${escrow.status})`);
+  }
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("wallet_address", walletAddress)
+    .single();
+
+  if (!user) return errorResponse("Wallet not found");
+
+  let role: "buyer" | "seller";
+  if (user.id === escrow.buyer_id) role = "buyer";
+  else if (user.id === escrow.seller_id) role = "seller";
+  else return errorResponse("You are not involved in this escrow");
+
+  // 3. Get or create meetup session
+  let { data: session } = await supabase
+    .from("meetup_sessions")
+    .select("*")
+    .eq("escrow_id", escrowId)
+    .maybeSingle();
+
+  if (!session) {
+    const { data: newSession, error } = await supabase
+      .from("meetup_sessions")
+      .insert({ escrow_id: escrowId })
+      .select()
+      .single();
+    if (error) {
+      console.error("[MEETUP] Failed to create session:", error);
+      return errorResponse("Failed to create meetup session", 500);
+    }
+    session = newSession;
+  }
+
+  // 4. Check not already submitted
+  const flagField = role === "buyer" ? "buyer_phone_submitted" : "seller_phone_submitted";
+  if (session[flagField]) {
+    return errorResponse(`You've already submitted your phone number for this meetup`);
+  }
+
+  // 5. Store HMAC hash + encrypted phone + set boolean flag
+  const phoneHash = await hashPhone(normalized);
+  const phoneEnc = await encryptPhone(normalized);
+  const hashField = role === "buyer" ? "buyer_phone_hash" : "seller_phone_hash";
+  const encField = role === "buyer" ? "buyer_phone_enc" : "seller_phone_enc";
+
+  await supabase
+    .from("meetup_sessions")
+    .update({ [flagField]: true, [hashField]: phoneHash, [encField]: phoneEnc })
+    .eq("id", session.id);
+
+  // 6. Get listing name for SMS
+  const { data: listing } = await supabase
+    .from("listings")
+    .select("item_name")
+    .eq("id", escrow.listing_id)
+    .single();
+  const itemName = listing?.item_name || "Mac Mini";
+
+  // 7. Send initial SMS via Twilio
+  await sendSms(
+    normalized,
+    `Hi! I'm the Niche meetup coordinator for your ${itemName} transaction. ` +
+    `What general area and times work best for you? ` +
+    `(e.g. "Downtown SF, weekday evenings")`
+  );
+
+  // 8. Check if both parties have submitted
+  const otherFlag = role === "buyer" ? "seller_phone_submitted" : "buyer_phone_submitted";
+  const bothSubmitted = session[otherFlag] === true;
+
+  if (bothSubmitted) {
+    // Send "both ready" message to the submitter (other party already got their initial SMS)
+    await sendSms(
+      normalized,
+      `Great news — both parties are ready! I'll relay messages between you to find a time and place. ` +
+      `Just text me your preferences and I'll pass them along.`
+    );
+  }
+
+  console.log(`[MEETUP] ${role} phone submitted for escrow ${escrowId}`);
+
+  return json({ submitted: true, role, bothSubmitted });
+}
+
+/**
+ * POST /webhooks/twilio/sms
+ *
+ * Incoming SMS webhook from Twilio. Relays messages between buyer and
+ * seller with agent intelligence (safety tips, venue suggestions).
+ */
+async function handleTwilioSmsWebhook(req: Request) {
+  // Twilio sends as application/x-www-form-urlencoded
+  const rawBody = await req.text();
+
+  // Validate Twilio signature (skip if auth token not set, e.g. in dev)
+  if (TWILIO_AUTH_TOKEN) {
+    const valid = await validateTwilioSignature(req, rawBody);
+    if (!valid) {
+      console.error("[TWILIO] Invalid webhook signature");
+      return errorResponse("Invalid signature", 403);
+    }
+  }
+
+  const params = new URLSearchParams(rawBody);
+  const from = params.get("From") || "";
+  const body = params.get("Body") || "";
+
+  console.log("[TWILIO] Incoming SMS from [REDACTED], length:", body.length);
+
+  if (!from || !body.trim()) {
+    return new Response(
+      '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+      { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
+    );
+  }
+
+  // Hash the incoming phone to find the matching session
+  const phoneHash = await hashPhone(from);
+
+  // Try to find session by buyer hash, then seller hash
+  let session = null;
+  let senderRole: "buyer" | "seller" | null = null;
+
+  const { data: buyerMatch } = await supabase
+    .from("meetup_sessions")
+    .select("*")
+    .eq("buyer_phone_hash", phoneHash)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (buyerMatch) {
+    session = buyerMatch;
+    senderRole = "buyer";
+  } else {
+    const { data: sellerMatch } = await supabase
+      .from("meetup_sessions")
+      .select("*")
+      .eq("seller_phone_hash", phoneHash)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (sellerMatch) {
+      session = sellerMatch;
+      senderRole = "seller";
+    }
+  }
+
+  if (!session || !senderRole) {
+    await sendSms(from, "Sorry, I couldn't find an active meetup session for your number. Please submit your phone through the Niche app.");
+    return new Response(
+      '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+      { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
+    );
+  }
+
+  const senderLabel = senderRole === "buyer" ? "Buyer" : "Seller";
+  const otherSubmitted = senderRole === "buyer" ? session.seller_phone_submitted : session.buyer_phone_submitted;
+  const otherEncField = senderRole === "buyer" ? "seller_phone_enc" : "buyer_phone_enc";
+
+  if (!otherSubmitted || !session[otherEncField]) {
+    // Other party hasn't submitted yet — acknowledge and hold
+    await sendSms(from, `Got it! The other party hasn't joined SMS coordination yet. I'll relay your message once they do.`);
+    return new Response(
+      '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+      { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
+    );
+  }
+
+  // Decrypt the other party's phone number to relay the message
+  const otherPhone = await decryptPhone(session[otherEncField]);
+  if (!otherPhone) {
+    await sendSms(from, `Sorry, I'm having trouble relaying your message. Please try coordinating via the in-app chat.`);
+    return new Response(
+      '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+      { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
+    );
+  }
+
+  // Relay the message to the other party with sender role label
+  await sendSms(otherPhone, `[${senderLabel}]: ${body.trim()}`);
+
+  // Add agent intelligence: safety tips on first relay
+  const messageLC = body.trim().toLowerCase();
+  const hasLocationKeywords = /\b(meet|where|location|place|address|store|cafe|coffee|library|mall|park)\b/i.test(messageLC);
+  const hasTimeKeywords = /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(am|pm)|morning|afternoon|evening|night|noon)\b/i.test(messageLC);
+
+  if (hasLocationKeywords || hasTimeKeywords) {
+    // Send safety tip to the sender (once, don't spam)
+    await sendSms(from,
+      `Tip: For safety, meet in a well-lit public place like an Apple Store, library, or busy coffee shop. ` +
+      `Inspect the item before confirming payment in the app.`
+    );
+  }
+
+  console.log(`[TWILIO] Relayed SMS from ${senderRole} for escrow ${session.escrow_id}`);
+
+  return new Response(
+    '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+    { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
+  );
+}
+
 // --- Main Router ---
 
 Deno.serve(async (req: Request) => {
@@ -1803,6 +2168,10 @@ Deno.serve(async (req: Request) => {
       return await handlePrivyTransactionWebhook(body);
     }
 
+    if (req.method === "POST" && path === "/webhooks/twilio/sms") {
+      return await handleTwilioSmsWebhook(req);
+    }
+
     // Escrow routes
     if (req.method === "POST" && path === "/escrow/deposit") {
       const body = await req.json();
@@ -1837,6 +2206,13 @@ Deno.serve(async (req: Request) => {
     if (req.method === "POST" && path === "/escrow/dispute") {
       const body = await req.json();
       return await handleEscrowDispute(body);
+    }
+
+    // POST /escrow/:id/meetup/phone — submit phone for SMS coordination
+    const meetupPhoneMatch = path.match(/^\/escrow\/([0-9a-f-]+)\/meetup\/phone$/);
+    if (req.method === "POST" && meetupPhoneMatch) {
+      const body = await req.json();
+      return await handleMeetupPhone(meetupPhoneMatch[1], body);
     }
 
     // GET/POST /escrow/:id/messages

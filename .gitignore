@@ -20,3 +20,4 @@ Thumbs.db
 # Scripts with secrets
 set-escrow-env.sh
 node_modules
+.claude
