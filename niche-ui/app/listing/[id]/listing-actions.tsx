@@ -262,12 +262,12 @@ export function ListingActions({
           <div className="bg-card border border-white/10 rounded-2xl p-8 max-w-[500px]">
             <h3 className="text-xl font-semibold mb-1">Place Deposit</h3>
             <p className="text-gray-400 text-sm mb-5">
-              Hold this card with a deposit. Pay the difference when you meet.
+              Hold this Mac Mini with a deposit. Pay the difference when you meet.
             </p>
 
             <div className="bg-white/3 rounded-lg p-4 mb-4 space-y-2">
               <div className="flex justify-between">
-                <span className="text-gray-400">Card</span>
+                <span className="text-gray-400">Item</span>
                 <span>{itemName}</span>
               </div>
               {category && (
@@ -363,7 +363,7 @@ export function ListingActions({
                 </div>
 
                 <p className="text-gray-500 text-xs mt-3">
-                  Meet the seller to inspect the card. You'll pay the remaining ${price - minDeposit} when you confirm.
+                  Meet the seller to inspect the Mac Mini. You'll pay the remaining ${price - minDeposit} when you confirm.
                 </p>
               </div>
             )}

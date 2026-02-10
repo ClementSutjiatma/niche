@@ -9,6 +9,14 @@ export interface Listing {
   user_id?: string;
   created_at?: string;
   users?: ListingUser; // Joined user data
+  chip?: string;
+  ram?: number;
+  storage?: number;
+  condition?: string;
+  year?: number;
+  has_warranty?: boolean;
+  includes_box?: boolean;
+  includes_accessories?: string;
 }
 
 export interface ListingUser {

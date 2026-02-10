@@ -1,25 +1,25 @@
 ---
 name: niche
-description: "Trading card marketplace with partial USD deposits. Browse cards, deposit partial amounts, and complete purchases with secure on-chain escrow."
+description: "Mac Mini marketplace with partial USD deposits. Browse Mac Minis, deposit partial amounts, and complete purchases with secure on-chain escrow."
 metadata:
   {
     "openclaw":
       {
-        "emoji": "🎴",
+        "emoji": "🖥️",
         "cron": [
           {
             "schedule": "*/15 * * * *",
             "command": "curl -s '<YOUR_SUPABASE_URL>/rest/v1/watches?select=*,users(id,channel_id,channel_type)' -H 'apikey: <YOUR_SUPABASE_ANON_KEY>' -H 'Authorization: Bearer <YOUR_SUPABASE_ANON_KEY>'",
-            "description": "Check for new cards matching user watches every 15 minutes. Agent should also query new listings since last check and match them against watches."
+            "description": "Check for new Mac Minis matching user watches every 15 minutes. Agent should also query new listings since last check and match them against watches."
           }
         ],
       },
   }
 ---
 
-# Niche — Trading Card Marketplace with Partial Deposits
+# Niche — Mac Mini Marketplace with Partial Deposits
 
-A peer-to-peer trading card marketplace where users list, discover, and transact cards with partial USD deposits on Base Sepolia. Meet in person to inspect cards before completing payment.
+A peer-to-peer Mac Mini marketplace where users list, discover, and transact Mac Minis with partial USD deposits on Base Sepolia. Meet in person to inspect machines before completing payment.
 
 ## Architecture
 
@@ -35,7 +35,7 @@ Agent (curl + open)        →  Supabase
 
 **Hosted UI:** https://niche-henna.vercel.app
 
-Anyone with the link can browse cards — no install needed.
+Anyone with the link can browse Mac Minis — no install needed.
 
 ## API Configuration
 
@@ -65,41 +65,49 @@ AUTH_FILE      = ~/.niche/auth.json
 
 ## Why Partial Deposits + In-Person Inspection
 
-- **Partial deposits** — Hold a card with just $10-50 deposit, not full price
-- **Meet & inspect** — See the card condition in person before final payment
+- **Partial deposits** — Hold a Mac Mini with just $40-500 deposit, not full price
+- **Meet & inspect** — Inspect the machine in person before final payment
 - **Atomic payment** — Buyer confirms + pays remaining amount in single action
 - **USD escrow** — All funds secured on-chain, released when both confirm
 - **Buyer cancellation** — Get full refund before seller confirms meetup
 - **Passkey signing** — Touch ID / Face ID to authorize transactions
 - **Gas sponsored** — No ETH needed for transactions
-- **Shareable links** — Send card URLs to anyone, no app needed
+- **Shareable links** — Send listing URLs to anyone, no app needed
 
-## Trading Card Flow
+## Transaction Flow
 
 ```
-1. Seller lists "Charizard Base Set" for $50 with $10 min deposit
-2. Buyer deposits $10 USD → card is held for buyer
-3. Buyer can cancel anytime before seller confirms → full $10 refund
-4. Both parties meet in person to inspect card
+1. Seller lists "Mac Mini M4 Pro 24GB/1TB" for $1450 with $200 min deposit
+2. Buyer deposits $200 USD → machine is held for buyer
+3. Buyer can cancel anytime before seller confirms → full $200 refund
+4. Both parties meet in person to inspect Mac Mini
 5. Seller confirms they showed up
-6. Buyer confirms AND pays $40 remaining (atomic action)
-7. Backend releases total $50 to seller
+6. Buyer confirms AND pays $1250 remaining (atomic action)
+7. Backend releases total $1450 to seller
 ```
 
 ## Database Schema
 
 ### Tables
 
-**listings** — Trading card listings
+**listings** — Mac Mini listings
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID | Primary key |
 | user_id | UUID | FK → users.id (seller) |
-| item_name | TEXT | Card name |
-| item_description | TEXT | Card details/condition |
+| item_name | TEXT | Mac Mini model name |
+| item_description | TEXT | Mac Mini details/condition |
 | price | NUMERIC | Total price in USD |
 | min_deposit | NUMERIC | Minimum deposit required |
-| category | TEXT | Pokemon, Magic, Sports, Yu-Gi-Oh |
+| category | TEXT | M4, M4 Pro, M4 Max, M2, M2 Pro, M2 Max, M1, M1 Pro |
+| chip | TEXT | M4, M4 Pro, M4 Max, M2, M2 Pro, M2 Max, M1, M1 Pro |
+| ram | INTEGER | GB (8, 16, 24, 32, 48, 64) |
+| storage | INTEGER | GB (256, 512, 1024, 2048) |
+| condition | TEXT | new, like-new, good, fair |
+| year | INTEGER | e.g. 2024, 2023, 2020 |
+| has_warranty | BOOLEAN | DEFAULT false |
+| includes_box | BOOLEAN | DEFAULT false |
+| includes_accessories | TEXT | e.g. "power cable, HDMI cable" |
 | status | TEXT | active, pending, completed, cancelled, sold |
 | created_at | TIMESTAMP | Auto-set |
 
@@ -122,7 +130,7 @@ AUTH_FILE      = ~/.niche/auth.json
 |--------|------|-------|
 | id | UUID | Primary key |
 | user_id | UUID | FK → users.id |
-| categories | TEXT[] | Array of card categories to watch (Pokemon, Magic, etc.) |
+| categories | TEXT[] | Array of Mac Mini chip families to watch (M4 Pro, M4 Max, M2, etc.) |
 | max_price | NUMERIC | Maximum price threshold |
 | created_at | TIMESTAMP | Auto-set |
 
@@ -237,7 +245,7 @@ Read directly from `~/.niche/auth.json` → `userId` field. No database lookup n
 Search active listings with optional filters. All filters are additive (AND logic).
 
 ```bash
-curl -s '<YOUR_SUPABASE_URL>/rest/v1/listings?status=eq.active&select=id,item_name,price,min_deposit,category,item_description,created_at,users(display_name)&order=created_at.desc' \
+curl -s '<YOUR_SUPABASE_URL>/rest/v1/listings?status=eq.active&select=id,item_name,price,min_deposit,category,item_description,chip,ram,storage,condition,year,has_warranty,created_at,users(display_name)&order=created_at.desc' \
   -H "apikey: <YOUR_SUPABASE_ANON_KEY>" \
   -H "Authorization: Bearer <YOUR_SUPABASE_ANON_KEY>"
 ```
@@ -245,10 +253,10 @@ curl -s '<YOUR_SUPABASE_URL>/rest/v1/listings?status=eq.active&select=id,item_na
 **Available PostgREST filters** (append to URL as query params):
 | Filter | Query Param | Example |
 |--------|-------------|---------|
-| Category (fuzzy) | `category=ilike.*Pokemon*` | Pokemon cards |
-| Item name (fuzzy) | `item_name=ilike.*Charizard*` | Cards with "Charizard" |
-| Max price | `price=lte.100` | Under $100 |
-| Min deposit threshold | `min_deposit=gte.5` | At least $5 deposit |
+| Category (fuzzy) | `category=ilike.*M4 Pro*` | M4 Pro Mac Minis |
+| Item name (fuzzy) | `item_name=ilike.*M4*` | Mac Minis with "M4" |
+| Max price | `price=lte.1500` | Under $1500 |
+| Min deposit threshold | `min_deposit=gte.100` | At least $100 deposit |
 
 ### Show Listing Detail
 
@@ -321,21 +329,29 @@ curl -s -X POST '<YOUR_SUPABASE_URL>/rest/v1/listings' \
   -H "Prefer: return=representation" \
   -d '{
     "user_id": "<user-uuid>",
-    "item_name": "Charizard Base Set",
-    "price": 50,
-    "min_deposit": 10,
-    "category": "Pokemon",
-    "item_description": "Mint condition, 1st edition",
-    "status": "active"
+    "item_name": "Mac Mini M4 Pro 24GB/1TB",
+    "price": 1450,
+    "min_deposit": 200,
+    "category": "M4 Pro",
+    "item_description": "Like-new, used for 3 months. Full Apple warranty.",
+    "status": "active",
+    "chip": "M4 Pro",
+    "ram": 24,
+    "storage": 1024,
+    "condition": "like-new",
+    "year": 2024,
+    "has_warranty": true,
+    "includes_box": true,
+    "includes_accessories": "power cable, HDMI cable"
   }'
 ```
 
 Returns the created listing with its UUID.
 
 Validation rules:
-- `item_name`, `price`, `min_deposit` are required
+- `item_name`, `price`, `min_deposit`, `chip`, `ram`, `storage`, `condition` are required
 - `min_deposit` must be <= `price`
-- `category` is optional but recommended (Pokemon, Magic, Sports, Yu-Gi-Oh)
+- `category` is optional but recommended (M4, M4 Pro, M4 Max, M2, M2 Pro, M2 Max, M1, M1 Pro)
 
 ### Cancel a Listing (requires auth)
 
@@ -367,8 +383,8 @@ curl -s -X POST '<YOUR_SUPABASE_URL>/rest/v1/watches' \
   -H "Prefer: return=representation" \
   -d '{
     "user_id": "<user-uuid>",
-    "categories": ["Pokemon", "Magic"],
-    "max_price": 100
+    "categories": ["M4 Pro", "M4 Max"],
+    "max_price": 2000
   }'
 ```
 
@@ -464,11 +480,11 @@ curl -s -X POST '<YOUR_SUPABASE_URL>/functions/v1/niche-api/escrow/dispute' \
   -d '{
     "escrowId": "<escrow-uuid>",
     "walletAddress": "<wallet-address>",
-    "reason": "Card condition misrepresented"
+    "reason": "Machine condition misrepresented"
   }'
 ```
 
-Returns: `{"disputed": true, "reason": "Card condition misrepresented"}`
+Returns: `{"disputed": true, "reason": "Machine condition misrepresented"}`
 
 ### Escrow Release (manual trigger)
 
@@ -481,7 +497,7 @@ curl -s -X POST '<YOUR_SUPABASE_URL>/functions/v1/niche-api/escrow/release' \
   -d '{
     "escrowId": "<escrow-uuid>",
     "sellerAddress": "<seller-wallet-address>",
-    "amount": 50
+    "amount": 1450
   }'
 ```
 
@@ -514,7 +530,7 @@ These operations require browser interaction (passkey signing, Privy SDK, or ext
 4. Escrow record created in database
 
 **Buyer confirmation flow in browser:**
-1. User confirms they inspected the card
+1. User confirms they inspected the Mac Mini
 2. Signs with passkey to pay remaining amount
 3. If seller already confirmed → escrow releases automatically
 
@@ -541,7 +557,7 @@ curl -s '<YOUR_SUPABASE_URL>/rest/v1/listings?status=eq.active&created_at=gt.<la
 4. Match logic — for each new listing, check each watch:
    - Skip if watch.user_id == listing.user_id (don't match own listings)
    - Skip if watch.max_price is set AND listing.price > watch.max_price
-   - Skip if watch.categories is set AND listing.category does not match any watch category (case-insensitive)
+   - Skip if watch.categories is set AND listing.category does not match any watch category (case-insensitive, e.g. "M4 Pro", "M4 Max")
    - If all filters pass → it's a match
 
 5. Report matches grouped by user.
@@ -586,9 +602,9 @@ curl -s -X POST '<YOUR_SUPABASE_URL>/rest/v1/escrows' \
     "listing_id": "<listing-uuid>",
     "buyer_id": "<buyer-user-uuid>",
     "seller_id": "<seller-user-uuid>",
-    "deposit_amount": 10,
-    "total_price": 50,
-    "remaining_amount": 40,
+    "deposit_amount": 200,
+    "total_price": 1450,
+    "remaining_amount": 1250,
     "currency": "USDC",
     "escrow_service": "simulated",
     "escrow_id": "sim_<timestamp>",
@@ -647,11 +663,11 @@ curl -s -X PATCH '<YOUR_SUPABASE_URL>/rest/v1/listings?id=eq.<listing-uuid>' \
 
 | Action | Without Login | With Login |
 |--------|--------------|------------|
-| Search / browse | Works | Works |
+| Search / browse listings | Works | Works |
 | Post listings | With simulate only | Works |
-| Place deposit | REQUIRES LOGIN (browser) | Real USD deposit |
+| Place deposit on Mac Mini | REQUIRES LOGIN (browser) | Real USD deposit |
 | Confirm + pay (buyer) | REQUIRES LOGIN (browser) | Completes purchase |
-| Confirm (seller) | REQUIRES LOGIN (curl) | Confirms meetup |
+| Confirm meetup (seller) | REQUIRES LOGIN (curl) | Confirms meetup |
 | Cancel deposit | REQUIRES LOGIN (curl) | Get refund |
 | Dispute | REQUIRES LOGIN (curl) | Holds funds |
 | Fund wallet | REQUIRES LOGIN (browser) | Faucet |
@@ -664,7 +680,7 @@ curl -s -X PATCH '<YOUR_SUPABASE_URL>/rest/v1/listings?id=eq.<listing-uuid>' \
 3. LOGIN  — agent starts localhost callback server → opens login page with ?callback → browser: Twitter OAuth → passkey → wallet → redirects to localhost → agent writes ~/.niche/auth.json
 4. FUND   — open Circle faucet for testnet USD
 5. DEPOSIT — open listing#escrow in browser (passkey signs deposit)
-6. MEET   — Schedule in-person inspection
+6. MEET   — Schedule in-person inspection of Mac Mini
 7. SELLER CONFIRMS — curl POST to escrow/confirm (seller acknowledges meetup)
 8. BUYER CONFIRMS + PAYS — open listing#confirm in browser (passkey signs remaining)
 9. RELEASED — Backend releases total to seller automatically
@@ -674,18 +690,18 @@ curl -s -X PATCH '<YOUR_SUPABASE_URL>/rest/v1/listings?id=eq.<listing-uuid>' \
 
 ### First-Time User
 ```
-User: "Find me a Charizard card under $100"
+User: "Find me an M4 Pro Mac Mini under $1500"
 
 Agent: Reads ~/.niche/auth.json → file exists or not
-Agent: curl GET listings with category=ilike.*Pokemon*&item_name=ilike.*Charizard*&price=lte.100
+Agent: curl GET listings with category=ilike.*M4 Pro*&price=lte.1500
 
-Agent: "Found 2 Charizard cards:
-  1. [a1b2c3d4] Charizard Base Set 1st Edition - $50 (min deposit: $10)
-  2. [e5f6g7h8] Charizard EX Full Art - $85 (min deposit: $20)
+Agent: "Found 2 M4 Pro Mac Minis:
+  1. [a1b2c3d4] Mac Mini M4 Pro 24GB/512GB - $1,250 (min deposit: $200)
+  2. [e5f6g7h8] Mac Mini M4 Pro 24GB/1TB - $1,450 (min deposit: $200)
 
 Want to see any in your browser? Or interested in one?"
 
-User: "I'm interested in #1"
+User: "I'm interested in #2"
 
 Agent: Checks ~/.niche/auth.json → not found
 Agent: "You'll need to login first. Setting up auth..."
@@ -697,6 +713,30 @@ Agent: Writes ~/.niche/auth.json from callback data
 Agent: "You're all set! Now let me place that deposit..."
 ```
 
+### Listing a Mac Mini for Sale
+```
+User: "List my Mac Mini M4 Pro 24GB/1TB for $1450, like-new with warranty"
+
+Agent: Reads ~/.niche/auth.json → found, userId exists
+Agent: curl POST listings with:
+  item_name: "Mac Mini M4 Pro 24GB/1TB"
+  price: 1450
+  min_deposit: 200
+  category: "M4 Pro"
+  chip: "M4 Pro"
+  ram: 24
+  storage: 1024
+  condition: "like-new"
+  year: 2024
+  has_warranty: true
+  item_description: "Like-new condition with full Apple warranty"
+
+Agent: "Listed! Your Mac Mini M4 Pro 24GB/1TB is now active at $1,450.
+        Listing ID: [a1b2c3d4]
+        Min deposit: $200
+        Share link: https://niche-henna.vercel.app/listing/<uuid>"
+```
+
 ### Deposit Flow
 ```
 User: "Place deposit on listing a1b2c3d4"
@@ -704,8 +744,8 @@ User: "Place deposit on listing a1b2c3d4"
 Agent: Reads ~/.niche/auth.json → found, wallet exists
 Agent: open "https://niche-henna.vercel.app/listing/<full-uuid>#escrow"
 Agent: "Opening the deposit page in your browser.
-        Sign with your passkey (Touch ID) to deposit $10 USD.
-        You'll pay the remaining $40 when you meet and confirm."
+        Sign with your passkey (Touch ID) to deposit $200 USD.
+        You'll pay the remaining $1,250 when you meet and confirm."
 ```
 
 ### Seller Confirmation
@@ -716,21 +756,21 @@ Agent: Reads ~/.niche/auth.json → gets wallet address
 Agent: curl GET escrow/by-listing/<listing-uuid> → gets escrow UUID
 Agent: curl POST escrow/confirm with escrowId + walletAddress
 
-Agent: "Confirmed! Waiting for buyer to confirm and pay remaining $40.
-        Once both confirm, $50 total will be released to your wallet."
+Agent: "Confirmed! Waiting for buyer to confirm and pay remaining $1,250.
+        Once both confirm, $1,450 total will be released to your wallet."
 ```
 
 ### Buyer Confirmation + Payment
 ```
-User: "I met the seller and the card is perfect. Complete the purchase."
+User: "I met the seller and the Mac Mini looks great. Complete the purchase."
 
 Agent: open "https://niche-henna.vercel.app/listing/<full-uuid>#confirm"
 Agent: "Opening the confirmation page in your browser.
         Sign with your passkey to:
-        1. Confirm you inspected the card
-        2. Pay the remaining $40 USD
+        1. Confirm you inspected the Mac Mini
+        2. Pay the remaining $1,250 USD
 
-        The seller will receive the total $50 once both confirm."
+        The seller will receive the total $1,450 once both confirm."
 ```
 
 ### Cancellation
@@ -741,8 +781,27 @@ Agent: Reads ~/.niche/auth.json → gets wallet address
 Agent: curl GET escrow/by-listing/<listing-uuid> → gets escrow UUID
 Agent: curl POST escrow/cancel with escrowId + walletAddress
 
-Agent: "Cancelled. Your full $10 USD deposit has been refunded.
+Agent: "Cancelled. Your full $200 USD deposit has been refunded.
         Refund tx: 0x..."
+```
+
+### Full End-to-End Example
+```
+Seller: "List my Mac Mini M4 Pro 24GB/1TB for $1,450"
+Agent: Creates listing [a1b2c3d4], min deposit $200
+
+Buyer: "Find M4 Pro Mac Minis under $1,500"
+Agent: Returns listing [a1b2c3d4] Mac Mini M4 Pro 24GB/1TB - $1,450
+
+Buyer: "Deposit on a1b2c3d4"
+Agent: Opens browser → buyer deposits $200 via passkey
+
+Seller: "Confirm meetup for a1b2c3d4"
+Agent: curl POST escrow/confirm → seller confirmed
+
+Buyer: "Complete purchase of a1b2c3d4"
+Agent: Opens browser → buyer pays remaining $1,250 via passkey
+Agent: Both confirmed → $1,450 released to seller automatically
 ```
 
 ## Tips for Agents
@@ -750,40 +809,45 @@ Agent: "Cancelled. Your full $10 USD deposit has been refunded.
 1. **Always check auth first** — Read `~/.niche/auth.json` before any authenticated operation. If missing or no `wallet` field, start a localhost callback server and open the login page with `?callback=http://localhost:PORT`. The browser will redirect back with auth data automatically after login.
 2. **Resolve prefix IDs** — Users give short IDs like `a1b2c3d4`. PostgREST cannot use `like` on UUID columns. Instead, use full UUIDs from recent search results/context, or fetch the relevant records (e.g. user's listings) and match the prefix client-side.
 3. **User UUID is in auth.json** — The `userId` field in `~/.niche/auth.json` is the Supabase UUID. Use it directly for write operations. No database lookup needed.
-4. **Offer to watch** — If search returns no results, offer to create a watch.
+4. **Offer to watch** — If search returns no results, offer to create a watch for that chip family.
 5. **Show listing IDs** — Always show the first 8 characters of listing UUIDs for easy reference.
-6. **Explain partial deposits** — Users deposit minimum amount, pay remaining at meetup.
+6. **Explain partial deposits** — Users deposit minimum amount, pay remaining at meetup after inspecting the Mac Mini.
 7. **Prompt before confirming** — Confirming as buyer = paying remaining amount (real funds).
 8. **Prompt before interest** — Deposits real USD to escrow.
 9. **Simulation is for demos only** — Only use simulate mode when user explicitly asks to test.
 10. **Browser vs curl** — Deposits, buyer confirmations, and login require the browser (passkey signing). Seller confirms, cancels, disputes, and all read operations use curl.
 11. **Cancellation window** — Buyers can cancel anytime before seller confirms meetup.
 12. **USD terminology** — Always say "USD" in user-facing messages. The underlying token is USDC on Base Sepolia testnet.
+13. **Include machine specs** — When listing a Mac Mini, always include chip, RAM, storage, and condition for accurate matching.
 
-## Sample Trading Cards (15 Available)
+## Sample Mac Minis (15 Available)
 
-**Pokemon** (5 cards):
-- Charizard Base Set 1st Edition - $50 (min: $10)
-- Blastoise Base Set - $30 (min: $8)
-- Pikachu Illustrator - $150 (min: $50)
-- Mewtwo EX Full Art - $25 (min: $5)
-- Rayquaza VMAX Rainbow - $40 (min: $10)
+**M4** (3 machines):
+- Mac Mini M4 16GB/256GB - $460 (min: $50)
+- Mac Mini M4 16GB/512GB - $540 (min: $75)
+- Mac Mini M4 24GB/512GB - $650 (min: $100)
 
-**Magic: The Gathering** (4 cards):
-- Black Lotus Alpha - $200 (min: $75)
-- Mox Sapphire - $100 (min: $30)
-- Tarmogoyf Future Sight - $35 (min: $10)
-- Liliana of the Veil - $45 (min: $12)
+**M4 Pro** (4 machines):
+- Mac Mini M4 Pro 24GB/512GB - $1,250 (min: $200)
+- Mac Mini M4 Pro 24GB/1TB - $1,450 (min: $200)
+- Mac Mini M4 Pro 48GB/1TB - $1,800 (min: $300)
+- Mac Mini M4 Pro 48GB/2TB - $2,100 (min: $350)
 
-**Sports** (4 cards):
-- Michael Jordan 1986 Fleer Rookie - $120 (min: $40)
-- Tom Brady 2000 Playoff Contenders Auto - $80 (min: $25)
-- Mike Trout 2009 Bowman Chrome Auto - $60 (min: $20)
-- LeBron James 2003 Topps Chrome Rookie - $55 (min: $15)
+**M4 Max** (2 machines):
+- Mac Mini M4 Max 36GB/1TB - $2,050 (min: $400)
+- Mac Mini M4 Max 64GB/2TB - $2,800 (min: $500)
 
-**Yu-Gi-Oh** (2 cards):
-- Blue-Eyes White Dragon 1st Edition - $28 (min: $8)
-- Dark Magician Girl MFC 1st - $22 (min: $6)
+**M2** (2 machines):
+- Mac Mini M2 8GB/256GB - $340 (min: $50)
+- Mac Mini M2 16GB/512GB - $480 (min: $75)
+
+**M2 Pro** (2 machines):
+- Mac Mini M2 Pro 16GB/512GB - $820 (min: $120)
+- Mac Mini M2 Pro 32GB/1TB - $1,100 (min: $180)
+
+**M1** (2 machines):
+- Mac Mini M1 8GB/256GB - $280 (min: $40)
+- Mac Mini M1 16GB/512GB - $380 (min: $60)
 
 ## Testnet & On-Chain
 

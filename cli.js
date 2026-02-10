@@ -448,9 +448,8 @@ async function cmdBrowse() {
 
   // Pass filters as query params
   const params = new URLSearchParams();
-  if (flags.neighborhood) params.set('neighborhood', flags.neighborhood);
+  if (flags.category) params.set('category', flags.category);
   if (flags['max-price']) params.set('max_price', flags['max-price']);
-  if (flags['min-rooms']) params.set('min_rooms', flags['min-rooms']);
 
   const qs = params.toString();
   if (qs) url += `?${qs}`;
@@ -485,11 +484,19 @@ async function cmdPost() {
     console.log('Usage: niche post --item-name <name> --price <amount> --min-deposit <amount> [options]');
     console.log('');
     console.log('Options:');
-    console.log('  --category <type>           Card category (e.g., Pokemon, Magic, Sports, Yu-Gi-Oh)');
-    console.log('  --item-description <text>   Description of the card');
+    console.log('  --category <type>           Chip family (M4, M4 Pro, M4 Max, M2, M2 Pro, M1)');
+    console.log('  --chip <chip>               Apple silicon chip (M4, M4 Pro, M4 Max, M2, etc.)');
+    console.log('  --ram <gb>                  RAM in GB (8, 16, 24, 32, 48, 64)');
+    console.log('  --storage <gb>              Storage in GB (256, 512, 1024, 2048)');
+    console.log('  --condition <cond>          Condition (new, like-new, good, fair)');
+    console.log('  --year <year>               Year (e.g., 2024, 2023)');
+    console.log('  --warranty                  Has active warranty');
+    console.log('  --box                       Includes original box');
+    console.log('  --accessories <text>        Included accessories');
+    console.log('  --item-description <text>   Additional description');
     console.log('');
     console.log('Example:');
-    console.log('  niche post --item-name "Charizard Base Set" --price 50 --min-deposit 10 --category "Pokemon" --item-description "Mint condition"');
+    console.log('  niche post --item-name "Mac Mini M4 Pro 24GB/1TB" --price 1450 --min-deposit 200 --category "M4 Pro" --chip "M4 Pro" --ram 24 --storage 1024 --condition "like-new" --year 2024 --warranty --box');
     return;
   }
 
@@ -500,17 +507,36 @@ async function cmdPost() {
 
   const db = getSupabase();
 
+  const chip = flags.chip || '';
+  const ram = flags.ram ? parseInt(flags.ram) : null;
+  const storage = flags.storage ? parseInt(flags.storage) : null;
+  const condition = flags.condition || '';
+  const year = flags.year ? parseInt(flags.year) : null;
+  const hasWarranty = flags.warranty === true || flags.warranty === 'true';
+  const includesBox = flags.box === true || flags.box === 'true';
+  const includesAccessories = flags.accessories || '';
+
+  const insertData = {
+    user_id: user.id,
+    item_name: itemName,
+    price,
+    min_deposit: minDeposit,
+    category,
+    item_description: itemDescription,
+    status: 'active'
+  };
+  if (chip) insertData.chip = chip;
+  if (ram) insertData.ram = ram;
+  if (storage) insertData.storage = storage;
+  if (condition) insertData.condition = condition;
+  if (year) insertData.year = year;
+  if (hasWarranty) insertData.has_warranty = true;
+  if (includesBox) insertData.includes_box = true;
+  if (includesAccessories) insertData.includes_accessories = includesAccessories;
+
   const { data: listing, error } = await db
     .from('listings')
-    .insert({
-      user_id: user.id,
-      item_name: itemName,
-      price,
-      min_deposit: minDeposit,
-      category,
-      item_description: itemDescription,
-      status: 'active'
-    })
+    .insert(insertData)
     .select()
     .single();
 
@@ -584,8 +610,12 @@ async function cmdSearch() {
   console.log(`Found ${listings.length} listing(s):\n`);
   listings.forEach((l, i) => {
     const id = l.id.slice(0, 8);
-    const category = l.category ? `[${l.category}]` : '[Card]';
+    const category = l.category ? `[${l.category}]` : '[Mac Mini]';
     console.log(`${i + 1}. [${id}] ${category} ${l.item_name} - $${l.price} USD`);
+    if (l.chip || l.ram || l.storage || l.condition) {
+      const specs = [l.chip, l.ram ? `${l.ram}GB` : null, l.storage ? (l.storage >= 1024 ? `${l.storage/1024}TB` : `${l.storage}GB`) : null, l.condition].filter(Boolean).join(' · ');
+      console.log(`   ${specs}`);
+    }
     console.log(`   Min deposit: $${l.min_deposit} USD`);
     if (l.item_description) {
       console.log(`   ${l.item_description.slice(0, 60)}${l.item_description.length > 60 ? '...' : ''}`);
@@ -646,9 +676,18 @@ async function cmdShow() {
   }
 
   const listing = listings[0];
-  const category = listing.category ? `[${listing.category}]` : '[Card]';
+  const category = listing.category ? `[${listing.category}]` : '[Mac Mini]';
 
   console.log(`\n[${listing.id.slice(0, 8)}] ${category} ${listing.item_name}\n`);
+  if (listing.chip || listing.ram || listing.storage) {
+    const specs = [listing.chip, listing.ram ? `${listing.ram}GB` : null, listing.storage ? (listing.storage >= 1024 ? `${listing.storage/1024}TB` : `${listing.storage}GB`) : null].filter(Boolean).join(' · ');
+    console.log(`Specs:       ${specs}`);
+  }
+  if (listing.condition) console.log(`Condition:   ${listing.condition}`);
+  if (listing.year) console.log(`Year:        ${listing.year}`);
+  if (listing.has_warranty) console.log(`Warranty:    Active`);
+  if (listing.includes_box) console.log(`Original Box: Yes`);
+  if (listing.includes_accessories) console.log(`Accessories: ${listing.includes_accessories}`);
   console.log(`Price:       $${listing.price} USD`);
   console.log(`Min Deposit: $${listing.min_deposit} USD`);
   console.log(`Remaining:   $${listing.price - listing.min_deposit} USD (at meetup)`);
@@ -707,12 +746,12 @@ async function cmdWatch() {
     console.log('Usage: niche watch [options]');
     console.log('');
     console.log('Options:');
-    console.log('  --category <types>      Comma-separated categories (e.g., Pokemon,Magic)');
+    console.log('  --category <types>      Comma-separated chip families (e.g., "M4 Pro,M4 Max")');
     console.log('  --max-price <n>         Maximum price in USD');
     console.log('  --min-deposit <n>       Minimum deposit in USD');
     console.log('');
     console.log('Example:');
-    console.log('  niche watch --category "Pokemon,Magic" --max-price 100');
+    console.log('  niche watch --category "M4 Pro,M4 Max" --max-price 1500');
     return;
   }
 
@@ -735,7 +774,7 @@ async function cmdWatch() {
   console.log(`  Categories: ${categories ? categories.join(', ') : 'Any'}`);
   console.log(`  Max price: ${maxPrice ? '$' + maxPrice : 'Any'}`);
   console.log(`  Min deposit: ${minDeposit ? '$' + minDeposit : 'Any'}`);
-  console.log('\nYou will be notified when a matching card appears.');
+  console.log('\nYou will be notified when a matching Mac Mini appears.');
 }
 
 async function cmdWatches() {
@@ -885,7 +924,7 @@ async function cmdInterest() {
   }
 
   console.log(`Opening escrow deposit for listing ${listing.id.slice(0, 8)}...`);
-  console.log(`  ${listing.rooms}BR in ${listing.neighborhood} — $${listing.price}/mo`);
+  console.log(`  ${listing.item_name} — $${listing.price} USD`);
   console.log('');
   console.log('Complete the escrow deposit in your browser.');
   console.log('Sign with your passkey to deposit USD.');
@@ -1042,7 +1081,7 @@ async function cmdConfirm() {
     console.log('🎉 Both parties confirmed! Escrow released.');
     console.log(`   ${escrow.amount} USD sent to seller.`);
     console.log('');
-    console.log('Congrats on your new place!');
+    console.log('Congrats on your new Mac Mini!');
   } else {
     console.log('');
     console.log(`Waiting for ${buyerConfirmed ? 'seller' : 'buyer'} confirmation.`);
@@ -1102,7 +1141,7 @@ async function cmdEscrow() {
   if (listingId) {
     const { data: allEscrows, error } = await db
       .from('escrows')
-      .select('*, listings(neighborhood, price, rooms)');
+      .select('*, listings(item_name, price, category)');
 
     if (error) throw error;
 
@@ -1129,7 +1168,7 @@ async function cmdEscrow() {
 
     const { data: escrows, error } = await db
       .from('escrows')
-      .select('*, listings(neighborhood, price)')
+      .select('*, listings(item_name, price, category)')
       .or(`buyer_id.eq.${user.id},seller_id.eq.${user.id}`)
       .order('created_at', { ascending: false });
 
@@ -1261,13 +1300,13 @@ async function cmdCheckMatches() {
     for (const watch of watches) {
       if (watch.user_id === listing.user_id) continue;
       if (watch.max_price && listing.price > watch.max_price) continue;
-      if (watch.min_rooms && listing.rooms < watch.min_rooms) continue;
-      if (watch.neighborhoods && watch.neighborhoods.length > 0) {
-        const listingHood = listing.neighborhood.toLowerCase();
-        const matchesHood = watch.neighborhoods.some(h =>
-          listingHood.includes(h.toLowerCase()) || h.toLowerCase().includes(listingHood)
+      if (watch.min_deposit && listing.min_deposit < watch.min_deposit) continue;
+      if (watch.categories && watch.categories.length > 0) {
+        const catLower = (listing.category || '').toLowerCase();
+        const matchesCat = watch.categories.some(c =>
+          catLower.includes(c.toLowerCase()) || c.toLowerCase().includes(catLower)
         );
-        if (!matchesHood) continue;
+        if (!matchesCat) continue;
       }
       matches.push({ watch, listing, user: watch.users });
     }
@@ -1296,12 +1335,10 @@ async function cmdCheckMatches() {
     console.log(`NOTIFY ${channelKey}:`);
     for (const listing of data.listings) {
       const id = listing.id.slice(0, 8);
-      const dates = listing.date_start
-        ? `${listing.date_start}${listing.date_end ? ' to ' + listing.date_end : ''}`
-        : 'Flexible';
-      console.log(`  - [${id}] ${listing.rooms}BR in ${listing.neighborhood} - $${listing.price}/mo (${dates})`);
-      if (listing.description) {
-        console.log(`    ${listing.description.slice(0, 50)}${listing.description.length > 50 ? '...' : ''}`);
+      const category = listing.category ? `[${listing.category}]` : '[Mac Mini]';
+      console.log(`  - [${id}] ${category} ${listing.item_name} - $${listing.price} USD`);
+      if (listing.item_description) {
+        console.log(`    ${listing.item_description.slice(0, 50)}${listing.item_description.length > 50 ? '...' : ''}`);
       }
     }
     console.log('');
@@ -1310,7 +1347,7 @@ async function cmdCheckMatches() {
 
 function showHelp() {
   console.log(`
-Niche v0 — Trading Card Marketplace with USD Escrow
+Niche v0 — Mac Mini Marketplace with USD Escrow
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 BROWSE (no account needed)
@@ -1350,9 +1387,9 @@ WATCHES
 ESCROW & FUNDS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  niche interest <id>       Express interest (opens escrow in browser) 🔐
-  niche confirm <id>        Confirm meetup happened 🔐
-  niche dispute <id>        File a dispute 🔐
+  niche interest <id>       Express interest (opens escrow in browser)
+  niche confirm <id>        Confirm meetup happened
+  niche dispute <id>        File a dispute
   niche escrow [id]         View escrow status
   niche balance             Check wallet balance
   niche fund [amount]       Open fiat on-ramp (MoonPay / Circle faucet)
@@ -1367,22 +1404,27 @@ TESTING
 EXAMPLES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  # Search and browse
-  niche search --neighborhood "East Village" --max-price 2500
-  niche browse --neighborhood "Williamsburg"
-  niche view abc123
+  # Search Mac Minis
+  niche search --category "M4 Pro" --max-price 1500
+  niche browse --category "M4"
+  niche show abc123
 
-  # Login (opens browser)
-  niche login
+  # List a Mac Mini for sale
+  niche post --item-name "Mac Mini M4 Pro 24GB/1TB" --price 1450 \\
+    --min-deposit 200 --category "M4 Pro" --chip "M4 Pro" \\
+    --ram 24 --storage 1024 --condition "like-new" --year 2024 --warranty
+
+  # Watch for deals
+  niche watch --category "M4 Pro,M4 Max" --max-price 2000
 
   # Express interest (opens escrow flow in browser)
   niche interest abc123
 
-  # After viewing, both confirm
+  # After meetup inspection, both confirm
   niche confirm abc123
 
   # Fund wallet with fiat
-  niche fund 2500
+  niche fund 1500
 
 Testnet: Base Sepolia USD
 Hosted UI: ${UI_BASE}

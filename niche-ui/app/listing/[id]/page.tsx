@@ -18,6 +18,12 @@ export default async function ListingPage({
     .eq("id", id)
     .single();
 
+  const formatStorage = (gb: number) => gb >= 1024 ? `${gb / 1024}TB` : `${gb}GB`;
+  const formatCondition = (c: string) => {
+    const map: Record<string, string> = { 'new': 'New', 'like-new': 'Like New', 'good': 'Good', 'fair': 'Fair' };
+    return map[c] || c;
+  };
+
   if (error || !listing) notFound();
   const l = listing as ListingDetail;
 
@@ -37,7 +43,7 @@ export default async function ListingPage({
       <div className="mt-4 mb-6">
         <div className="flex items-center gap-2">
           <div className="text-sm text-gray-400 uppercase tracking-wide">
-            {l.category ? `${l.category} Card` : 'Trading Card'}
+            {l.category ? `${l.category} Mac Mini` : 'Mac Mini'}
           </div>
           {l.status === "pending" && (
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400 border border-yellow-400/20">
@@ -55,6 +61,56 @@ export default async function ListingPage({
           Min. deposit: <span className="text-brand font-semibold">${Number(l.min_deposit).toLocaleString()} USD</span>
         </div>
       </div>
+
+      {/* Specs grid */}
+      {(l.chip || l.ram || l.storage) && (
+        <div className="grid grid-cols-2 gap-[1px] bg-border my-4">
+          {l.chip && (
+            <div className="bg-surface p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Chip</div>
+              <div className="text-sm font-semibold mt-1">{l.chip}</div>
+            </div>
+          )}
+          {l.ram && (
+            <div className="bg-surface p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Memory</div>
+              <div className="text-sm font-semibold mt-1">{l.ram}GB</div>
+            </div>
+          )}
+          {l.storage && (
+            <div className="bg-surface p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Storage</div>
+              <div className="text-sm font-semibold mt-1">{formatStorage(l.storage)}</div>
+            </div>
+          )}
+          {l.condition && (
+            <div className="bg-surface p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Condition</div>
+              <div className="text-sm font-semibold mt-1">{formatCondition(l.condition)}</div>
+            </div>
+          )}
+          {l.year && (
+            <div className="bg-surface p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Year</div>
+              <div className="text-sm font-semibold mt-1">{l.year}</div>
+            </div>
+          )}
+          <div className="bg-surface p-3">
+            <div className="text-xs text-gray-500 uppercase tracking-wider">Warranty</div>
+            <div className="text-sm font-semibold mt-1">{l.has_warranty ? 'Active' : 'No'}</div>
+          </div>
+          <div className="bg-surface p-3">
+            <div className="text-xs text-gray-500 uppercase tracking-wider">Original Box</div>
+            <div className="text-sm font-semibold mt-1">{l.includes_box ? 'Yes' : 'No'}</div>
+          </div>
+          {l.includes_accessories && (
+            <div className="bg-surface p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Accessories</div>
+              <div className="text-sm font-semibold mt-1">{l.includes_accessories}</div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="text-base text-gray-300 leading-relaxed my-4 p-4 bg-white/3 rounded-lg">
         {l.item_description || "No description provided."}

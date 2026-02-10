@@ -174,7 +174,7 @@ export function LoginForm() {
     <div className="max-w-md mx-auto mt-16 p-8 border border-border bg-surface">
       <h1 className="text-3xl font-bold mb-6 text-center">Login to Niche</h1>
       <p className="text-sm text-text-secondary mb-8 text-center">
-        Connect your Twitter/X account to start trading cards with on-chain escrow
+        Connect your Twitter/X account to start buying and selling Mac Minis with on-chain escrow
       </p>
 
       {authenticated && user && !user.twitter && (

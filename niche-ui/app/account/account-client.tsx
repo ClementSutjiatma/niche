@@ -273,7 +273,7 @@ function EscrowsList({
             <div className="flex items-center justify-between text-sm">
               <div className="text-gray-400">
                 {listing
-                  ? `${listing.item_name} (${listing.category || 'Card'})`
+                  ? `${listing.item_name} (${listing.category || 'Mac Mini'})`
                   : `Listing ${e.listing_id.slice(0, 8)}`}
               </div>
               <div className="flex items-center gap-3 text-xs text-gray-500">

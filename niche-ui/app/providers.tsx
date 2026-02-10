@@ -44,7 +44,7 @@ export function Providers({ children }: { children: ReactNode }) {
           accentColor: '#10B981', // Brand green color
           logo: 'https://niche-hk5pqm035-clement-sutjiatmas-projects.vercel.app/logo.png',
           landingHeader: 'Connect with Twitter',
-          loginMessage: 'Sign in with your Twitter account to start trading',
+          loginMessage: 'Sign in with your Twitter account to buy or sell Mac Minis',
           showWalletLoginFirst: false,
         },
       }}

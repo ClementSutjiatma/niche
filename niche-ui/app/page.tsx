@@ -59,7 +59,7 @@ function HomePageContent() {
       <section className="text-center py-12 border-b border-border">
         <h1 className="text-5xl font-bold mb-4 tracking-tight">niche</h1>
         <p className="text-text-secondary text-lg mb-8">
-          Peer-to-peer marketplace for unique trading cards
+          Peer-to-peer marketplace for Mac Minis
         </p>
         <SmartSearch />
 
@@ -75,7 +75,7 @@ function HomePageContent() {
             <LoadingGrid />
           ) : listings.length === 0 ? (
             <div className="text-center py-16 text-text-tertiary">
-              <div className="text-5xl mb-3">🎴</div>
+              <div className="text-5xl mb-3">🖥️</div>
               No listings found
               <br />
               <small className="text-text-tertiary">Try different search terms</small>
@@ -108,25 +108,25 @@ function HomePageContent() {
             </code>
             <ol className="mt-4 space-y-2 text-sm text-text-secondary">
               <li>1. Run the command above in your terminal</li>
-              <li>2. Authenticate with X and buy or sell cards</li>
+              <li>2. Authenticate with X and buy or sell Mac Minis</li>
               <li>3. Deposit USD to escrow and complete the transaction</li>
             </ol>
           </div>
 
           {/* Seller examples */}
           <div className="mt-12 max-w-2xl mx-auto text-left">
-            <h3 className="text-lg font-semibold mb-4">Selling a Card</h3>
+            <h3 className="text-lg font-semibold mb-4">Selling a Mac Mini</h3>
             <div className="space-y-4">
               <div className="bg-bg border border-border p-4">
-                <p className="text-sm text-text-secondary mb-2">List a card for sale:</p>
-                <p className="text-sm font-mono text-text-primary">&quot;List my Charizard Base Set 1st Edition for $50, Pokemon, mint condition&quot;</p>
+                <p className="text-sm text-text-secondary mb-2">List with full specs:</p>
+                <p className="text-sm font-mono text-text-primary">&quot;List my Mac Mini M4 Pro 24GB/1TB for $1450, like-new with warranty and original box&quot;</p>
               </div>
               <div className="bg-bg border border-border p-4">
-                <p className="text-sm text-text-secondary mb-2">Set a custom minimum deposit:</p>
-                <p className="text-sm font-mono text-text-primary">&quot;Sell my Black Lotus Alpha for $200, Magic, require $75 deposit&quot;</p>
+                <p className="text-sm text-text-secondary mb-2">Sell an older model:</p>
+                <p className="text-sm font-mono text-text-primary">&quot;Sell my M2 Mac Mini 16GB/512GB for $480, good condition, no box, 2023&quot;</p>
               </div>
               <div className="bg-bg border border-border p-4">
-                <p className="text-sm text-text-secondary mb-2">Confirm meetup after showing the card:</p>
+                <p className="text-sm text-text-secondary mb-2">Confirm meetup after showing the machine:</p>
                 <p className="text-sm font-mono text-text-primary">&quot;I met the buyer. Confirm the meetup for listing a1b2c3d4&quot;</p>
               </div>
             </div>
@@ -134,20 +134,20 @@ function HomePageContent() {
 
           {/* Buyer examples */}
           <div className="mt-10 max-w-2xl mx-auto text-left">
-            <h3 className="text-lg font-semibold mb-4">Buying a Card</h3>
+            <h3 className="text-lg font-semibold mb-4">Buying a Mac Mini</h3>
             <div className="space-y-4">
               <div className="bg-bg border border-border p-4">
-                <p className="text-sm text-text-secondary mb-2">Search for cards:</p>
-                <p className="text-sm font-mono text-text-primary">&quot;Find me Pokemon cards under $100&quot;</p>
+                <p className="text-sm text-text-secondary mb-2">Search by chip and budget:</p>
+                <p className="text-sm font-mono text-text-primary">&quot;Find me an M4 Pro under $1500&quot;</p>
               </div>
               <div className="bg-bg border border-border p-4">
-                <p className="text-sm text-text-secondary mb-2">Place a deposit to hold a card:</p>
-                <p className="text-sm font-mono text-text-primary">&quot;Deposit on the Charizard, listing a1b2c3d4&quot;</p>
-                <p className="text-xs text-text-tertiary mt-1">Signs with passkey &middot; deposits min amount &middot; card is held for you</p>
+                <p className="text-sm text-text-secondary mb-2">Place a deposit to hold a machine:</p>
+                <p className="text-sm font-mono text-text-primary">&quot;Deposit on the M4 Pro 24GB/1TB, listing a1b2c3d4&quot;</p>
+                <p className="text-xs text-text-tertiary mt-1">Signs with passkey &middot; deposits min amount &middot; machine is held for you</p>
               </div>
               <div className="bg-bg border border-border p-4">
                 <p className="text-sm text-text-secondary mb-2">Confirm and pay remaining after inspecting:</p>
-                <p className="text-sm font-mono text-text-primary">&quot;The card looks great. Complete the purchase for a1b2c3d4&quot;</p>
+                <p className="text-sm font-mono text-text-primary">&quot;The Mac Mini looks great. Complete the purchase for a1b2c3d4&quot;</p>
                 <p className="text-xs text-text-tertiary mt-1">Signs with passkey &middot; pays remaining balance &middot; seller gets paid</p>
               </div>
               <div className="bg-bg border border-border p-4">

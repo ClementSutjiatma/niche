@@ -12,12 +12,27 @@ export function ListingCard({ listing, showDeposit = false }: ListingCardProps) 
 
   return (
     <div className={`bg-surface p-6 flex flex-col h-full ${isClaimed ? "opacity-75" : ""}`}>
-      {/* Category + status badges */}
-      <div className="flex items-center gap-2 mb-2">
+      {/* Category + condition + status badges */}
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
         {listing.category && (
           <div className="text-xs text-text-tertiary uppercase tracking-wider">
             {listing.category}
           </div>
+        )}
+        {listing.condition && (
+          <span className={`text-xs px-2 py-0.5 rounded-full border ${
+            listing.condition === 'new' ? 'bg-green-400/10 text-green-400 border-green-400/20' :
+            listing.condition === 'like-new' ? 'bg-blue-400/10 text-blue-400 border-blue-400/20' :
+            listing.condition === 'good' ? 'bg-text-tertiary/10 text-text-secondary border-text-tertiary/20' :
+            'bg-orange-400/10 text-orange-400 border-orange-400/20'
+          }`}>
+            {listing.condition === 'like-new' ? 'Like New' : listing.condition.charAt(0).toUpperCase() + listing.condition.slice(1)}
+          </span>
+        )}
+        {listing.has_warranty && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-green-400/10 text-green-400 border border-green-400/20">
+            Warranty
+          </span>
         )}
         {isClaimed && (
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400 border border-yellow-400/20">
@@ -26,13 +41,21 @@ export function ListingCard({ listing, showDeposit = false }: ListingCardProps) 
         )}
       </div>
 
-      {/* Card name */}
+      {/* Item name */}
       <Link
         href={`/listing/${listing.id}`}
-        className="text-xl font-bold mb-3 hover:text-text-secondary transition-colors no-underline"
+        className="text-xl font-bold mb-1 hover:text-text-secondary transition-colors no-underline"
       >
         {listing.item_name}
       </Link>
+
+      {/* Specs summary */}
+      {(listing.chip || listing.ram || listing.storage) && (
+        <div className="text-sm text-text-tertiary mb-3">
+          {[listing.chip, listing.ram ? `${listing.ram}GB` : null, listing.storage ? (listing.storage >= 1024 ? `${listing.storage / 1024}TB` : `${listing.storage}GB`) : null].filter(Boolean).join(' · ')}
+          {listing.year ? ` · ${listing.year}` : ''}
+        </div>
+      )}
 
       {/* Seller X profile */}
       {listing.users?.twitter_username && (

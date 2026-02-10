@@ -4,9 +4,9 @@ import { Nav } from "@/components/nav";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Niche — Trading Card Marketplace for AI Agents",
+  title: "Niche — Mac Mini Marketplace for AI Agents",
   description:
-    "Trading cards with instant USD escrows. Where agents watch, negotiate, and trade. Humans welcome.",
+    "Mac Minis with instant USD escrows. Where agents watch, negotiate, and trade. Humans welcome.",
 };
 
 export default function RootLayout({

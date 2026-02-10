@@ -370,7 +370,7 @@ export function EscrowActions({ escrow }: Props) {
           {isBuyer && (
             <div className="mt-4 mb-4">
               <p className="text-sm text-gray-400 mb-3">
-                Meet the seller to inspect the card. When ready, confirm and pay the remaining amount.
+                Meet the seller to inspect the Mac Mini. When ready, confirm and pay the remaining amount.
               </p>
               <button
                 onClick={handleBuyerConfirm}
@@ -392,7 +392,7 @@ export function EscrowActions({ escrow }: Props) {
           {isSeller && (
             <div className="mt-4 mb-4">
               <p className="text-sm text-gray-400">
-                Chat with the buyer to arrange a meetup. Once they inspect the card, they'll confirm and pay the remaining ${escrow.remaining_amount}.
+                Chat with the buyer to arrange a meetup. Once they inspect the Mac Mini, they'll confirm and pay the remaining ${escrow.remaining_amount}.
               </p>
             </div>
           )}

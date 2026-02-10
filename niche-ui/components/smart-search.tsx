@@ -4,14 +4,14 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 const SUGGESTIONS = [
-  "Charizard under $100",
-  "Black Lotus graded PSA 9",
-  "Pokemon cards with free shipping",
-  "Magic cards from Alpha set",
-  "Yu-Gi-Oh Blue-Eyes under $50",
-  "Sports cards Michael Jordan rookie",
-  "Sealed Pokemon booster boxes",
-  "Graded cards only",
+  "M4 Pro under $1500",
+  "Mac Mini with 64GB RAM",
+  "M4 Max new in box",
+  "M2 under $500",
+  "48GB with warranty",
+  "M1 good condition",
+  "M4 Pro 1TB storage",
+  "Like-new M4 under $700",
 ];
 
 export function SmartSearch() {
@@ -73,19 +73,22 @@ function parseNaturalLanguage(query: string): Record<string, string> {
   const overMatch = lower.match(/over \$?(\d+)/);
   if (overMatch) filters.min_price = overMatch[1];
 
-  // Extract categories
-  if (lower.includes("pokemon")) filters.category = "Pokemon";
-  if (lower.includes("magic") || lower.includes("mtg"))
-    filters.category = "Magic: The Gathering";
-  if (lower.includes("yugioh") || lower.includes("yu-gi-oh"))
-    filters.category = "Yu-Gi-Oh!";
-  if (lower.includes("sports")) filters.category = "Sports Cards";
+  // Extract categories (chip families — match longest first)
+  if (lower.includes("m4 max")) filters.category = "M4 Max";
+  else if (lower.includes("m4 pro")) filters.category = "M4 Pro";
+  else if (lower.includes("m4")) filters.category = "M4";
+  else if (lower.includes("m2 max")) filters.category = "M2 Max";
+  else if (lower.includes("m2 pro")) filters.category = "M2 Pro";
+  else if (lower.includes("m2")) filters.category = "M2";
+  else if (lower.includes("m1 pro")) filters.category = "M1 Pro";
+  else if (lower.includes("m1")) filters.category = "M1";
 
-  // Extract card names (remaining text after filters)
+  // Extract item names (remaining text after filters)
   const nameQuery = query
     .replace(/under \$?\d+/i, "")
     .replace(/over \$?\d+/i, "")
-    .replace(/pokemon|magic|yugioh|sports/gi, "")
+    .replace(/m[124]\s*(pro|max)?/gi, "")
+    .replace(/mac\s*mini/gi, "")
     .trim();
 
   if (nameQuery) filters.q = nameQuery;

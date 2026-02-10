@@ -169,7 +169,7 @@ async function sendEscrowCompletionEmails(escrow: any) {
 
     // Transaction details for both emails
     const cardName = listing.item_name;
-    const category = listing.category || "Card";
+    const category = listing.category || "Mac Mini";
     const price = escrow.total_price;
     const escrowUrl = `https://niche-ddq89ltdk-clement-sutjiatmas-projects.vercel.app/escrow/${escrow.id}`;
     const releaseTxUrl = escrow.release_tx_hash
@@ -190,7 +190,7 @@ async function sendEscrowCompletionEmails(escrow: any) {
 
             <h3>Transaction Details:</h3>
             <ul>
-              <li><strong>Card:</strong> ${cardName}</li>
+              <li><strong>Item:</strong> ${cardName}</li>
               <li><strong>Total Paid:</strong> $${price} USD</li>
               <li><strong>Status:</strong> Funds released to seller</li>
             </ul>
@@ -221,7 +221,7 @@ async function sendEscrowCompletionEmails(escrow: any) {
 
             <h3>Transaction Details:</h3>
             <ul>
-              <li><strong>Card:</strong> ${cardName}</li>
+              <li><strong>Item:</strong> ${cardName}</li>
               <li><strong>Amount Received:</strong> $${price} USD</li>
               <li><strong>Status:</strong> Funds transferred to your wallet</li>
             </ul>
