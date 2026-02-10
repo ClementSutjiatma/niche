@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS meetup_sessions (
   seller_phone_hash TEXT,
   buyer_phone_enc TEXT,    -- AES-GCM encrypted, decryptable only by edge function
   seller_phone_enc TEXT,   -- AES-GCM encrypted, decryptable only by edge function
+  conversation_history JSONB NOT NULL DEFAULT '[]'::jsonb,  -- LLM agent context
+  safety_tip_sent BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

@@ -45,6 +45,9 @@ const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID") || "";
 const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") || "";
 const TWILIO_PHONE_NUMBER = Deno.env.get("TWILIO_PHONE_NUMBER") || "";
 
+// Anthropic API (for meetup coordination agent)
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+
 /** Send SMS via Twilio REST API (no SDK needed for Deno) */
 async function sendSms(to: string, body: string): Promise<boolean> {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
@@ -2006,10 +2009,112 @@ async function handleMeetupPhone(escrowId: string, body: {
 }
 
 /**
+ * Call Anthropic Claude API for meetup coordination agent.
+ * Returns the agent's response text given conversation history.
+ */
+async function callMeetupAgent(
+  conversationHistory: Array<{ role: string; content: string }>,
+  senderRole: "buyer" | "seller",
+  newMessage: string,
+  itemName: string,
+): Promise<string> {
+  if (!ANTHROPIC_API_KEY) {
+    console.log("[AGENT] Anthropic API key not configured, falling back to relay");
+    return "";
+  }
+
+  const systemPrompt = `You are a friendly, concise meetup coordinator for Niche, a peer-to-peer Mac Mini marketplace. Your job is to help the buyer and seller find a safe, convenient time and place to meet for the exchange.
+
+CONTEXT:
+- Item being exchanged: ${itemName}
+- You are coordinating between the BUYER and SELLER via SMS
+- Messages from each party are labeled [Buyer] or [Seller]
+- Neither party can see the other's phone number — you are the intermediary
+
+YOUR BEHAVIOR:
+- Keep responses SHORT (1-3 sentences max, this is SMS)
+- Be warm but efficient — help them converge on a plan quickly
+- When one party suggests a time/place, relay it to the other and ask if it works
+- Suggest safe PUBLIC meeting spots (Apple Stores, libraries, busy coffee shops, police station lobbies) if they ask or seem unsure
+- If both agree on a plan, confirm it back to both and remind them to inspect the item before confirming payment in the app
+- Include a safety reminder once (not every message): meet in public, bring a friend if possible, inspect item before paying
+- NEVER share one party's phone number, address, or personal details with the other
+- If the conversation goes off-topic, gently steer back to scheduling the meetup
+- If someone seems to be trying to scam (wants to meet in private, pressures to pay outside the app, etc.), warn the other party
+
+RESPONSE FORMAT:
+Respond with what to send to BOTH parties. Format your response as:
+TO_SENDER: <message to the person who just texted>
+TO_OTHER: <message to relay to the other party>
+
+If you only need to respond to the sender (e.g. answering a question), just use:
+TO_SENDER: <message>
+
+If no response is needed, respond with:
+NONE`;
+
+  // Build messages array with history + new message
+  const messages = [
+    ...conversationHistory.map((msg: { role: string; content: string }) => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+    })),
+    {
+      role: "user" as const,
+      content: `[${senderRole === "buyer" ? "Buyer" : "Seller"}]: ${newMessage}`,
+    },
+  ];
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-20250414",
+        max_tokens: 300,
+        system: systemPrompt,
+        messages,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("[AGENT] Anthropic API error:", err);
+      return "";
+    }
+
+    const data = await res.json();
+    const responseText = data.content?.[0]?.text || "";
+    console.log("[AGENT] Response:", responseText.slice(0, 100));
+    return responseText;
+  } catch (err) {
+    console.error("[AGENT] Failed to call Anthropic:", err);
+    return "";
+  }
+}
+
+/**
+ * Parse agent response into messages for sender and other party.
+ */
+function parseAgentResponse(response: string): { toSender: string | null; toOther: string | null } {
+  const toSenderMatch = response.match(/TO_SENDER:\s*(.+?)(?=\nTO_OTHER:|$)/s);
+  const toOtherMatch = response.match(/TO_OTHER:\s*(.+?)$/s);
+
+  return {
+    toSender: toSenderMatch ? toSenderMatch[1].trim() : null,
+    toOther: toOtherMatch ? toOtherMatch[1].trim() : null,
+  };
+}
+
+/**
  * POST /webhooks/twilio/sms
  *
- * Incoming SMS webhook from Twilio. Relays messages between buyer and
- * seller with agent intelligence (safety tips, venue suggestions).
+ * Incoming SMS webhook from Twilio. Uses an LLM agent to naturally
+ * coordinate meetups between buyer and seller via SMS relay.
  */
 async function handleTwilioSmsWebhook(req: Request) {
   // Twilio sends as application/x-www-form-urlencoded
@@ -2024,18 +2129,18 @@ async function handleTwilioSmsWebhook(req: Request) {
     }
   }
 
+  const twimlEmpty = new Response(
+    '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+    { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
+  );
+
   const params = new URLSearchParams(rawBody);
   const from = params.get("From") || "";
   const body = params.get("Body") || "";
 
   console.log("[TWILIO] Incoming SMS from [REDACTED], length:", body.length);
 
-  if (!from || !body.trim()) {
-    return new Response(
-      '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-      { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
-    );
-  }
+  if (!from || !body.trim()) return twimlEmpty;
 
   // Hash the incoming phone to find the matching session
   const phoneHash = await hashPhone(from);
@@ -2071,57 +2176,87 @@ async function handleTwilioSmsWebhook(req: Request) {
 
   if (!session || !senderRole) {
     await sendSms(from, "Sorry, I couldn't find an active meetup session for your number. Please submit your phone through the Niche app.");
-    return new Response(
-      '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-      { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
-    );
+    return twimlEmpty;
   }
 
-  const senderLabel = senderRole === "buyer" ? "Buyer" : "Seller";
   const otherSubmitted = senderRole === "buyer" ? session.seller_phone_submitted : session.buyer_phone_submitted;
   const otherEncField = senderRole === "buyer" ? "seller_phone_enc" : "buyer_phone_enc";
 
   if (!otherSubmitted || !session[otherEncField]) {
-    // Other party hasn't submitted yet — acknowledge and hold
-    await sendSms(from, `Got it! The other party hasn't joined SMS coordination yet. I'll relay your message once they do.`);
-    return new Response(
-      '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-      { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
-    );
+    await sendSms(from, `Got it! The other party hasn't joined SMS coordination yet. I'll pass your message along once they do.`);
+    return twimlEmpty;
   }
 
-  // Decrypt the other party's phone number to relay the message
+  // Decrypt other party's phone for relay
   const otherPhone = await decryptPhone(session[otherEncField]);
   if (!otherPhone) {
-    await sendSms(from, `Sorry, I'm having trouble relaying your message. Please try coordinating via the in-app chat.`);
-    return new Response(
-      '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-      { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
-    );
+    await sendSms(from, `Sorry, I'm having trouble right now. You can also coordinate via the in-app chat.`);
+    return twimlEmpty;
   }
 
-  // Relay the message to the other party with sender role label
-  await sendSms(otherPhone, `[${senderLabel}]: ${body.trim()}`);
-
-  // Add agent intelligence: safety tips on first relay
-  const messageLC = body.trim().toLowerCase();
-  const hasLocationKeywords = /\b(meet|where|location|place|address|store|cafe|coffee|library|mall|park)\b/i.test(messageLC);
-  const hasTimeKeywords = /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(am|pm)|morning|afternoon|evening|night|noon)\b/i.test(messageLC);
-
-  if (hasLocationKeywords || hasTimeKeywords) {
-    // Send safety tip to the sender (once, don't spam)
-    await sendSms(from,
-      `Tip: For safety, meet in a well-lit public place like an Apple Store, library, or busy coffee shop. ` +
-      `Inspect the item before confirming payment in the app.`
-    );
+  // Get item name for agent context
+  const { data: escrow } = await supabase
+    .from("escrows")
+    .select("listing_id")
+    .eq("id", session.escrow_id)
+    .single();
+  let itemName = "Mac Mini";
+  if (escrow) {
+    const { data: listing } = await supabase
+      .from("listings")
+      .select("item_name")
+      .eq("id", escrow.listing_id)
+      .single();
+    if (listing) itemName = listing.item_name;
   }
 
-  console.log(`[TWILIO] Relayed SMS from ${senderRole} for escrow ${session.escrow_id}`);
+  // Load conversation history (keep last 20 messages for context window)
+  const history: Array<{ role: string; content: string }> = (session.conversation_history || []).slice(-20);
 
-  return new Response(
-    '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-    { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
-  );
+  // Call the LLM agent
+  const agentResponse = await callMeetupAgent(history, senderRole, body.trim(), itemName);
+
+  // Update conversation history
+  const newHistory = [
+    ...history,
+    { role: "user", content: `[${senderRole === "buyer" ? "Buyer" : "Seller"}]: ${body.trim()}` },
+  ];
+
+  if (agentResponse) {
+    const { toSender, toOther } = parseAgentResponse(agentResponse);
+
+    // Send agent responses
+    if (toSender) await sendSms(from, toSender);
+    if (toOther) await sendSms(otherPhone, toOther);
+
+    // Save agent response in history
+    newHistory.push({ role: "assistant", content: agentResponse });
+  } else {
+    // Fallback: simple relay if agent is unavailable
+    const senderLabel = senderRole === "buyer" ? "Buyer" : "Seller";
+    await sendSms(otherPhone, `[${senderLabel}]: ${body.trim()}`);
+
+    // One-time safety tip
+    if (!session.safety_tip_sent) {
+      await sendSms(from,
+        `Tip: Meet in a well-lit public place like an Apple Store or library. Inspect the item before confirming payment in the app.`
+      );
+      await supabase
+        .from("meetup_sessions")
+        .update({ safety_tip_sent: true })
+        .eq("id", session.id);
+    }
+  }
+
+  // Persist updated conversation history
+  await supabase
+    .from("meetup_sessions")
+    .update({ conversation_history: newHistory })
+    .eq("id", session.id);
+
+  console.log(`[TWILIO] Processed SMS from ${senderRole} for escrow ${session.escrow_id}`);
+
+  return twimlEmpty;
 }
 
 // --- Main Router ---
