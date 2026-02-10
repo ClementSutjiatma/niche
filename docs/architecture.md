@@ -6,41 +6,7 @@ A peer-to-peer Mac Mini marketplace with on-chain USDC escrow on Base. Buyers an
 
 ## 1. System Overview
 
-```mermaid
-graph TD
-    subgraph Clients
-        UI["niche-ui\nNext.js 15 · React 19\nVercel"]
-        CLI["CLI · cli.js\nNode.js"]
-        Agent["AI Agent\ncurl · open"]
-    end
-
-    subgraph Supabase["Supabase Platform"]
-        EF["niche-api\nEdge Function · Deno"]
-        PG["PostgreSQL\nusers · listings\nescrows · messages · watches"]
-        REST["PostgREST\nAuto-generated read API"]
-    end
-
-    subgraph External["External Services"]
-        Privy["Privy\nOAuth · Server Wallets · Passkeys"]
-        Base["Base Sepolia\nUSDC Contract"]
-        Resend["Resend\nEmail Notifications"]
-        Twilio["Twilio\nSMS · Meetup Agent"]
-    end
-
-    UI -->|"Mutations"| EF
-    UI -->|"Direct reads"| REST
-    CLI -->|"HTTP"| EF
-    CLI -->|"Direct reads"| REST
-    Agent -->|"curl"| EF
-    Agent -->|"curl"| REST
-
-    EF -->|"SQL"| PG
-    EF -->|"Wallet ops"| Privy
-    EF -->|"USDC transfers"| Base
-    EF -->|"Emails"| Resend
-    EF -->|"SMS coordination"| Twilio
-    REST -->|"Auto-API"| PG
-```
+![System Overview](https://mermaid.ink/img/Z3JhcGggVEQKICAgIHN1YmdyYXBoIENsaWVudHMKICAgICAgICBVSVsibmljaGUtdWk8YnI+TmV4dC5qcyAxNSDCtyBSZWFjdCAxOTxicj5WZXJjZWwiXQogICAgICAgIENMSVsiQ0xJIMK3IGNsaS5qczxicj5Ob2RlLmpzIl0KICAgICAgICBBZ2VudFsiQUkgQWdlbnQ8YnI+Y3VybCDCtyBvcGVuIl0KICAgIGVuZAoKICAgIHN1YmdyYXBoIFN1cGFiYXNlWyJTdXBhYmFzZSBQbGF0Zm9ybSJdCiAgICAgICAgRUZbIm5pY2hlLWFwaTxicj5FZGdlIEZ1bmN0aW9uIMK3IERlbm8iXQogICAgICAgIFBHWyJQb3N0Z3JlU1FMPGJyPnVzZXJzIMK3IGxpc3RpbmdzPGJyPmVzY3Jvd3MgwrcgbWVzc2FnZXMgwrcgd2F0Y2hlcyJdCiAgICAgICAgUkVTVFsiUG9zdGdSRVNUPGJyPkF1dG8tZ2VuZXJhdGVkIHJlYWQgQVBJIl0KICAgIGVuZAoKICAgIHN1YmdyYXBoIEV4dGVybmFsWyJFeHRlcm5hbCBTZXJ2aWNlcyJdCiAgICAgICAgUHJpdnlbIlByaXZ5PGJyPk9BdXRoIMK3IFNlcnZlciBXYWxsZXRzIMK3IFBhc3NrZXlzIl0KICAgICAgICBCYXNlWyJCYXNlIFNlcG9saWE8YnI+VVNEQyBDb250cmFjdCJdCiAgICAgICAgUmVzZW5kWyJSZXNlbmQ8YnI+RW1haWwgTm90aWZpY2F0aW9ucyJdCiAgICAgICAgVHdpbGlvWyJUd2lsaW88YnI+U01TIMK3IE1lZXR1cCBBZ2VudCJdCiAgICBlbmQKCiAgICBVSSAtLT58Ik11dGF0aW9ucyJ8IEVGCiAgICBVSSAtLT58IkRpcmVjdCByZWFkcyJ8IFJFU1QKICAgIENMSSAtLT58IkhUVFAifCBFRgogICAgQ0xJIC0tPnwiRGlyZWN0IHJlYWRzInwgUkVTVAogICAgQWdlbnQgLS0+fCJjdXJsInwgRUYKICAgIEFnZW50IC0tPnwiY3VybCJ8IFJFU1QKCiAgICBFRiAtLT58IlNRTCJ8IFBHCiAgICBFRiAtLT58IldhbGxldCBvcHMifCBQcml2eQogICAgRUYgLS0+fCJVU0RDIHRyYW5zZmVycyJ8IEJhc2UKICAgIEVGIC0tPnwiRW1haWxzInwgUmVzZW5kCiAgICBFRiAtLT58IlNNUyBjb29yZGluYXRpb24ifCBUd2lsaW8KICAgIFJFU1QgLS0+fCJBdXRvLUFQSSJ8IFBH)
 
 | Component | Technology | Responsibility | Deployed To |
 |-----------|-----------|----------------|-------------|
@@ -62,161 +28,23 @@ Each subsection maps a user action to the exact technical sequence that executes
 
 ### 2a. Authentication (Twitter Login)
 
-```mermaid
-sequenceDiagram
-    actor User
-    participant UI as niche-ui
-    participant Privy as Privy SDK
-    participant Twitter as Twitter/X OAuth
-    participant EF as niche-api
-    participant DB as PostgreSQL
-
-    User->>UI: Click "Continue with Twitter/X"
-    UI->>Privy: login()
-    Privy->>Twitter: OAuth redirect
-    Twitter-->>Privy: Access token + profile
-    Privy-->>UI: Authenticated user object
-
-    UI->>EF: POST /auth/lookup
-    Note right of EF: {privyUserId, twitterUsername, twitterUserId}
-    EF->>DB: SELECT FROM users WHERE channel_id = twitterUserId
-
-    alt User exists with wallet
-        DB-->>EF: User row
-        EF-->>UI: {found: true, wallet, userId}
-        UI->>UI: saveAuth() → localStorage
-    else New user
-        EF-->>UI: {found: false}
-        UI->>UI: Redirect → /login/setup-passkey
-    end
-```
+![Authentication Flow](https://mermaid.ink/img/c2VxdWVuY2VEaWFncmFtCiAgICBhY3RvciBVc2VyCiAgICBwYXJ0aWNpcGFudCBVSSBhcyBuaWNoZS11aQogICAgcGFydGljaXBhbnQgUHJpdnkgYXMgUHJpdnkgU0RLCiAgICBwYXJ0aWNpcGFudCBUd2l0dGVyIGFzIFR3aXR0ZXIvWCBPQXV0aAogICAgcGFydGljaXBhbnQgRUYgYXMgbmljaGUtYXBpCiAgICBwYXJ0aWNpcGFudCBEQiBhcyBQb3N0Z3JlU1FMCgogICAgVXNlci0-PlVJOiBDbGljayAiQ29udGludWUgd2l0aCBUd2l0dGVyL1giCiAgICBVSS0-PlByaXZ5OiBsb2dpbigpCiAgICBQcml2eS0-PlR3aXR0ZXI6IE9BdXRoIHJlZGlyZWN0CiAgICBUd2l0dGVyLS0-PlByaXZ5OiBBY2Nlc3MgdG9rZW4gKyBwcm9maWxlCiAgICBQcml2eS0tPj5VSTogQXV0aGVudGljYXRlZCB1c2VyIG9iamVjdAoKICAgIFVJLT4-RUY6IFBPU1QgL2F1dGgvbG9va3VwCiAgICBOb3RlIHJpZ2h0IG9mIEVGOiB7cHJpdnlVc2VySWQsIHR3aXR0ZXJVc2VybmFtZSwgdHdpdHRlclVzZXJJZH0KICAgIEVGLT4-REI6IFNFTEVDVCBGUk9NIHVzZXJzIFdIRVJFIGNoYW5uZWxfaWQgPSB0d2l0dGVyVXNlcklkCgogICAgYWx0IFVzZXIgZXhpc3RzIHdpdGggd2FsbGV0CiAgICAgICAgREItLT4-RUY6IFVzZXIgcm93CiAgICAgICAgRUYtLT4-VUk6IHtmb3VuZDogdHJ1ZSwgd2FsbGV0LCB1c2VySWR9CiAgICAgICAgVUktPj5VSTogc2F2ZUF1dGgoKSAtPiBsb2NhbFN0b3JhZ2UKICAgIGVsc2UgTmV3IHVzZXIKICAgICAgICBFRi0tPj5VSTogeyBmb3VuZDogZmFsc2UgfQogICAgICAgIFVJLT4-VUk6IFJlZGlyZWN0IC0-IC9sb2dpbi9zZXR1cC1wYXNza2V5CiAgICBlbmQ=)
 
 ### 2b. Passkey Setup + Wallet Creation
 
-```mermaid
-sequenceDiagram
-    actor User
-    participant Browser as WebAuthn API
-    participant UI as niche-ui
-    participant EF as niche-api
-    participant Privy as Privy Wallets
-    participant DB as PostgreSQL
-
-    UI->>EF: POST /auth/challenge
-    EF-->>UI: {challenge: base64}
-
-    UI->>Browser: navigator.credentials.create({publicKey})
-    Browser->>User: Touch ID / Face ID prompt
-    User-->>Browser: Biometric OK
-    Browser-->>UI: PublicKeyCredential
-
-    UI->>EF: POST /auth/wallet
-    Note right of EF: {privyUserId, passkey, twitterUsername}
-
-    EF->>Privy: wallets().create({chain_type: "ethereum"})
-    Privy-->>EF: {address: "0x...", id: "wallet_..."}
-
-    EF->>DB: INSERT user (channel_id, wallet_address)
-    EF->>DB: UPDATE user SET passkey_public_key, passkey_credential_id
-    EF-->>UI: {wallet, walletId, userId}
-    UI->>UI: saveAuth() → localStorage
-```
+![Passkey Setup Flow](https://mermaid.ink/img/c2VxdWVuY2VEaWFncmFtCiAgICBhY3RvciBVc2VyCiAgICBwYXJ0aWNpcGFudCBCcm93c2VyIGFzIFdlYkF1dGhuIEFQSQogICAgcGFydGljaXBhbnQgVUkgYXMgbmljaGUtdWkKICAgIHBhcnRpY2lwYW50IEVGIGFzIG5pY2hlLWFwaQogICAgcGFydGljaXBhbnQgUHJpdnkgYXMgUHJpdnkgV2FsbGV0cwogICAgcGFydGljaXBhbnQgREIgYXMgUG9zdGdyZVNRTAoKICAgIFVJLT4-RUY6IFBPU1QgL2F1dGgvY2hhbGxlbmdlCiAgICBFRi0tPj5VSTogeyBjaGFsbGVuZ2U6IGJhc2U2NCB9CgogICAgVUktPj5Ccm93c2VyOiBuYXZpZ2F0b3IuY3JlZGVudGlhbHMuY3JlYXRlKHsgcHVibGljS2V5IH0pCiAgICBCcm93c2VyLT4-VXNlcjogVG91Y2ggSUQgLyBGYWNlIElEIHByb21wdAogICAgVXNlci0tPj5Ccm93c2VyOiBCaW9tZXRyaWMgT0sKICAgIEJyb3dzZXItLT4-VUk6IFB1YmxpY0tleUNyZWRlbnRpYWwKCiAgICBVSS0-PkVGOiBQT1NUIC9hdXRoL3dhbGxldAogICAgTm90ZSByaWdodCBvZiBFRjogeyBwcml2eVVzZXJJZCwgcGFzc2tleSwgdHdpdHRlclVzZXJuYW1lIH0KCiAgICBFRi0-PlByaXZ5OiB3YWxsZXRzKCkuY3JlYXRlKHsgY2hhaW5fdHlwZTogZXRoZXJldW0gfSkKICAgIFByaXZ5LS0-PkVGOiB7IGFkZHJlc3M6IDB4Li4uLCBpZDogd2FsbGV0Xy4uLiB9CgogICAgRUYtPj5EQjogSU5TRVJUIHVzZXIgKGNoYW5uZWxfaWQsIHdhbGxldF9hZGRyZXNzKQogICAgRUYtPj5EQjogVVBEQVRFIHVzZXIgU0VUIHBhc3NrZXlfcHVibGljX2tleSwgcGFzc2tleV9jcmVkZW50aWFsX2lkCiAgICBFRi0tPj5VSTogeyB3YWxsZXQsIHdhbGxldElkLCB1c2VySWQgfQogICAgVUktPj5VSTogc2F2ZUF1dGgoKSAtPiBsb2NhbFN0b3JhZ2U=)
 
 ### 2c. Deposit (Buyer Claims a Listing)
 
-```mermaid
-sequenceDiagram
-    actor Buyer
-    participant UI as niche-ui
-    participant WebAuthn as WebAuthn API
-    participant Privy as Privy SDK
-    participant Base as Base Sepolia
-    participant EF as niche-api
-    participant DB as PostgreSQL
-
-    Buyer->>UI: Click "Place Deposit" on listing
-
-    Note over UI,WebAuthn: Passkey challenge = SHA-256(listingId:wallet:amount:timestamp)
-    UI->>WebAuthn: navigator.credentials.get({challenge})
-    WebAuthn->>Buyer: Touch ID prompt
-    Buyer-->>WebAuthn: Biometric OK
-    WebAuthn-->>UI: Assertion (signature + authenticatorData)
-
-    UI->>Privy: sendTransaction({to: USDC, data: transfer(escrowWallet, depositAmount)})
-    Privy->>Base: ERC-20 transfer (gas sponsored)
-    Base-->>Privy: txHash
-    Privy-->>UI: {hash: "0x..."}
-
-    UI->>EF: POST /escrow/deposit
-    Note right of EF: {listingId, buyerWallet, txHash, passkey assertion}
-    EF->>EF: Verify passkey assertion
-    EF->>DB: Verify listing is active + not own listing
-    EF->>DB: INSERT escrow (status: deposited, expires_at: now + 48h)
-    EF->>DB: UPDATE listing SET status = 'pending'
-    EF-->>UI: {escrowId, txHash}
-
-    UI->>UI: Redirect → /escrow/{id}
-```
+![Deposit Flow](https://mermaid.ink/img/c2VxdWVuY2VEaWFncmFtCiAgICBhY3RvciBCdXllcgogICAgcGFydGljaXBhbnQgVUkgYXMgbmljaGUtdWkKICAgIHBhcnRpY2lwYW50IFdlYkF1dGhuIGFzIFdlYkF1dGhuIEFQSQogICAgcGFydGljaXBhbnQgUHJpdnkgYXMgUHJpdnkgU0RLCiAgICBwYXJ0aWNpcGFudCBCYXNlIGFzIEJhc2UgU2Vwb2xpYQogICAgcGFydGljaXBhbnQgRUYgYXMgbmljaGUtYXBpCiAgICBwYXJ0aWNpcGFudCBEQiBhcyBQb3N0Z3JlU1FMCgogICAgQnV5ZXItPj5VSTogQ2xpY2sgUGxhY2UgRGVwb3NpdCBvbiBsaXN0aW5nCgogICAgTm90ZSBvdmVyIFVJLFdlYkF1dGhuOiBQYXNza2V5IGNoYWxsZW5nZSA9IFNIQS0yNTYobGlzdGluZ0lkOndhbGxldDphbW91bnQ6dGltZXN0YW1wKQogICAgVUktPj5XZWJBdXRobjogbmF2aWdhdG9yLmNyZWRlbnRpYWxzLmdldCh7IGNoYWxsZW5nZSB9KQogICAgV2ViQXV0aG4tPj5CdXllcjogVG91Y2ggSUQgcHJvbXB0CiAgICBCdXllci0tPj5XZWJBdXRobjogQmlvbWV0cmljIE9LCiAgICBXZWJBdXRobi0tPj5VSTogQXNzZXJ0aW9uIChzaWduYXR1cmUgKyBhdXRoZW50aWNhdG9yRGF0YSkKCiAgICBVSS0-PlByaXZ5OiBzZW5kVHJhbnNhY3Rpb24oeyB0bzogVVNEQywgZGF0YTogdHJhbnNmZXIoZXNjcm93V2FsbGV0LCBkZXBvc2l0QW1vdW50KSB9KQogICAgUHJpdnktPj5CYXNlOiBFUkMtMjAgdHJhbnNmZXIgKGdhcyBzcG9uc29yZWQpCiAgICBCYXNlLS0-PlByaXZ5OiB0eEhhc2gKICAgIFByaXZ5LS0-PlVJOiB7IGhhc2g6IDB4Li4uIH0KCiAgICBVSS0-PkVGOiBQT1NUIC9lc2Nyb3cvZGVwb3NpdAogICAgTm90ZSByaWdodCBvZiBFRjogeyBsaXN0aW5nSWQsIGJ1eWVyV2FsbGV0LCB0eEhhc2gsIHBhc3NrZXkgYXNzZXJ0aW9uIH0KICAgIEVGLT4-RUY6IFZlcmlmeSBwYXNza2V5IGFzc2VydGlvbgogICAgRUYtPj5EQjogVmVyaWZ5IGxpc3RpbmcgaXMgYWN0aXZlICsgbm90IG93biBsaXN0aW5nCiAgICBFRi0-PkRCOiBJTlNFUlQgZXNjcm93IChzdGF0dXM6IGRlcG9zaXRlZCwgZXhwaXJlc19hdDogbm93ICsgNDhoKQogICAgRUYtPj5EQjogVVBEQVRFIGxpc3RpbmcgU0VUIHN0YXR1cyA9IHBlbmRpbmcKICAgIEVGLS0-PlVJOiB7IGVzY3Jvd0lkLCB0eEhhc2ggfQoKICAgIFVJLT4-VUk6IFJlZGlyZWN0IC0-IC9lc2Nyb3cve2lkfQ==)
 
 ### 2d. Escrow Lifecycle (Accept → Release)
 
-```mermaid
-sequenceDiagram
-    actor Seller
-    actor Buyer
-    participant EF as niche-api
-    participant DB as PostgreSQL
-    participant Privy as Privy Wallets
-    participant Base as Base Sepolia
-    participant Email as Resend
-
-    Note over Seller,Buyer: ── Status: deposited ──
-    Seller->>EF: POST /escrow/accept {escrowId, wallet}
-    EF->>DB: UPDATE escrow SET status = 'accepted', accepted_at = now()
-
-    Note over Seller,Buyer: ── Status: accepted · Chat opens ──
-    Buyer->>EF: GET /escrow/:id/messages
-    Seller->>EF: POST /escrow/:id/messages
-    Note over Seller,Buyer: Coordinate meetup via chat + SMS agent
-
-    Note over Seller,Buyer: ── In-person meetup occurs ──
-    Buyer->>EF: POST /escrow/confirm
-    Note right of EF: {escrowId, wallet, remainingPaymentTxHash, passkey}
-    EF->>DB: UPDATE escrow SET status = 'buyer_confirmed'
-
-    Note over Seller,Buyer: ── Status: buyer_confirmed ──
-    Seller->>EF: POST /escrow/confirm {escrowId, wallet}
-    EF->>Privy: sendTransaction(ESCROW_WALLET → seller, totalPrice)
-    Privy->>Base: USDC transfer to seller
-    Base-->>Privy: txHash
-    EF->>DB: UPDATE escrow SET status = 'released', release_tx_hash = ...
-    EF->>DB: UPDATE listing SET status = 'sold'
-    EF->>Email: Notify buyer + seller
-
-    Note over Seller,Buyer: ── Status: released · Complete ──
-```
+![Escrow Lifecycle](https://mermaid.ink/img/c2VxdWVuY2VEaWFncmFtCiAgICBhY3RvciBTZWxsZXIKICAgIGFjdG9yIEJ1eWVyCiAgICBwYXJ0aWNpcGFudCBFRiBhcyBuaWNoZS1hcGkKICAgIHBhcnRpY2lwYW50IERCIGFzIFBvc3RncmVTUUwKICAgIHBhcnRpY2lwYW50IFByaXZ5IGFzIFByaXZ5IFdhbGxldHMKICAgIHBhcnRpY2lwYW50IEJhc2UgYXMgQmFzZSBTZXBvbGlhCiAgICBwYXJ0aWNpcGFudCBFbWFpbCBhcyBSZXNlbmQKCiAgICBOb3RlIG92ZXIgU2VsbGVyLEJ1eWVyOiBTdGF0dXM6IGRlcG9zaXRlZAogICAgU2VsbGVyLT4-RUY6IFBPU1QgL2VzY3Jvdy9hY2NlcHQKICAgIEVGLT4-REI6IFVQREFURSBlc2Nyb3cgU0VUIHN0YXR1cyA9IGFjY2VwdGVkCgogICAgTm90ZSBvdmVyIFNlbGxlcixCdXllcjogU3RhdHVzOiBhY2NlcHRlZCAtIENoYXQgb3BlbnMKICAgIEJ1eWVyLT4-RUY6IEdFVCAvZXNjcm93LzppZC9tZXNzYWdlcwogICAgU2VsbGVyLT4-RUY6IFBPU1QgL2VzY3Jvdy86aWQvbWVzc2FnZXMKICAgIE5vdGUgb3ZlciBTZWxsZXIsQnV5ZXI6IENvb3JkaW5hdGUgbWVldHVwIHZpYSBjaGF0ICsgU01TIGFnZW50CgogICAgTm90ZSBvdmVyIFNlbGxlcixCdXllcjogSW4tcGVyc29uIG1lZXR1cCBvY2N1cnMKICAgIEJ1eWVyLT4-RUY6IFBPU1QgL2VzY3Jvdy9jb25maXJtCiAgICBOb3RlIHJpZ2h0IG9mIEVGOiBlc2Nyb3dJZCwgd2FsbGV0LCByZW1haW5pbmdQYXltZW50VHhIYXNoCiAgICBFRi0-PkRCOiBVUERBVEUgZXNjcm93IFNFVCB0YXR1cyA9IGJ1eWVyX2NvbmZpcm1lZAoKICAgIE5vdGUgb3ZlciBTZWxsZXIsQnV5ZXI6IFN0YXR1czogYnV5ZXJfY29uZmlybWVkCiAgICBTZWxsZXItPj5FRjogUE9TVCAvZXNjcm93L2NvbmZpcm0KICAgIEVGLT4-UHJpdnk6IHNlbmRUcmFuc2FjdGlvbihlc2Nyb3dXYWxsZXQgLT4gc2VsbGVyLCB0b3RhbFByaWNlKQogICAgUHJpdnktPj5CYXNlOiBVU0RDIHRyYW5zZmVyIHRvIHNlbGxlcgogICAgQmFzZS0tPj5Qcml2eTogdHhIYXNoCiAgICBFRi0-PkRCOiBVUERBVEUgZXNjcm93IFNFVCB0YXR1cyA9IHJlbGVhc2VkCiAgICBFRi0-PkRCOiBVUERBVEUgbGlzdGluZyBTRVQgc3RhdHVzID0gc29sZAogICAgRUYtPj5FbWFpbDogTm90aWZ5IGJ1eWVyICsgc2VsbGVyCgogICAgTm90ZSBvdmVyIFNlbGxlcixCdXllcjogU3RhdHVzOiByZWxlYXNlZCAtIENvbXBsZXRl)
 
 ### 2e. Browse & Search
 
-```mermaid
-sequenceDiagram
-    actor User
-    participant UI as niche-ui
-    participant Parser as parseNaturalLanguage()
-    participant REST as Supabase PostgREST
-    participant DB as PostgreSQL
-
-    User->>UI: Type "M4 Pro under $1500"
-    UI->>Parser: Parse natural language query
-    Parser-->>UI: {chip: "M4 Pro", max_price: 1500}
-
-    UI->>REST: GET /rest/v1/listings?chip=eq.M4 Pro&price=lte.1500&status=eq.active
-    REST->>DB: SELECT * FROM listings WHERE chip='M4 Pro' AND price <= 1500
-    DB-->>REST: Matching rows
-    REST-->>UI: JSON array
-
-    UI->>UI: Render listing grid with ListingCard components
-```
+![Browse and Search Flow](https://mermaid.ink/img/c2VxdWVuY2VEaWFncmFtCiAgICBhY3RvciBVc2VyCiAgICBwYXJ0aWNpcGFudCBVSSBhcyBuaWNoZS11aQogICAgcGFydGljaXBhbnQgUGFyc2VyIGFzIHBhcnNlTmF0dXJhbExhbmd1YWdlKCkKICAgIHBhcnRpY2lwYW50IFJFU1QgYXMgU3VwYWJhc2UgUG9zdGdSRVNUCiAgICBwYXJ0aWNpcGFudCBEQiBhcyBQb3N0Z3JlU1FMCgogICAgVXNlci0-PlVJOiBUeXBlIE00IFBybyB1bmRlciAkMTUwMAogICAgVUktPj5QYXJzZXI6IFBhcnNlIG5hdHVyYWwgbGFuZ3VhZ2UgcXVlcnkKICAgIFBhcnNlci0tPj5VSTogeyBjaGlwOiBNNCBQcm8sIG1heF9wcmljZTogMTUwMCB9CgogICAgVUktPj5SRVNUOiBHRVQgL3Jlc3QvdjEvbGlzdGluZ3M/Y2hpcD1lcS5NNCBQcm8gYW5kIHByaWNlPWx0ZS4xNTAwCiAgICBSRVNULT4-REI6IFNFTEVDVCBGUk9NIGxpc3RpbmdzIFdIRVJFIGNoaXA9TTQgUHJvIEFORCBwcmljZSA8PSAxNTAwCiAgICBEQi0tPj5SRVNUOiBNYXRjaGluZyByb3dzCiAgICBSRVNULS0-PlVJOiBKU09OIGFycmF5CgogICAgVUktPj5VSTogUmVuZGVyIGxpc3RpbmcgZ3JpZCB3aXRoIExpc3RpbmdDYXJkIGNvbXBvbmVudHM=)
 
 ---
 
@@ -226,84 +54,19 @@ sequenceDiagram
 
 Shows how data moves through each layer when a buyer places a deposit.
 
-```mermaid
-graph LR
-    subgraph "Browser"
-        A["localStorage\n(auth state)"] --> B["WebAuthn\nchallenge + sign"]
-        B --> C["Privy SDK\nsendTransaction()"]
-    end
-
-    subgraph "Blockchain"
-        C --> D["USDC.transfer()\nbuyer → escrow wallet"]
-        D --> E["txHash confirmed"]
-    end
-
-    subgraph "Edge Function"
-        E --> F["POST /escrow/deposit"]
-        F --> G["Verify passkey\nassertion"]
-        G --> H["Validate listing\n(active, not own)"]
-    end
-
-    subgraph "Database"
-        H --> I["INSERT escrow\nstatus: deposited\nexpires_at: +48h"]
-        I --> J["UPDATE listing\nstatus: pending"]
-    end
-```
+![Deposit Data Flow](https://mermaid.ink/img/Z3JhcGggTFIKICAgIHN1YmdyYXBoICJCcm93c2VyIgogICAgICAgIEFbImxvY2FsU3RvcmFnZTxicj4oYXV0aCBzdGF0ZSkiXSAtLT4gQlsiV2ViQXV0aG48YnI+Y2hhbGxlbmdlICsgc2lnbiJdCiAgICAgICAgQiAtLT4gQ1siUHJpdnkgU0RLPGJyPnNlbmRUcmFuc2FjdGlvbigpIl0KICAgIGVuZAoKICAgIHN1YmdyYXBoICJCbG9ja2NoYWluIgogICAgICAgIEMgLS0+IERbIlVTREMudHJhbnNmZXIoKTxicj5idXllciAtPiBlc2Nyb3cgd2FsbGV0Il0KICAgICAgICBEIC0tPiBFWyJ0eEhhc2ggY29uZmlybWVkIl0KICAgIGVuZAoKICAgIHN1YmdyYXBoICJFZGdlIEZ1bmN0aW9uIgogICAgICAgIEUgLS0+IEZbIlBPU1QgL2VzY3Jvdy9kZXBvc2l0Il0KICAgICAgICBGIC0tPiBHWyJWZXJpZnkgcGFzc2tleTxicj5hc3NlcnRpb24iXQogICAgICAgIEcgLS0+IEhbIlZhbGlkYXRlIGxpc3Rpbmc8YnI+KGFjdGl2ZSwgbm90IG93bikiXQogICAgZW5kCgogICAgc3ViZ3JhcGggIkRhdGFiYXNlIgogICAgICAgIEggLS0+IElbIklOU0VSVCBlc2Nyb3c8YnI+c3RhdHVzOiBkZXBvc2l0ZWQ8YnI+ZXhwaXJlc19hdDogKzQ4aCJdCiAgICAgICAgSSAtLT4gSlsiVVBEQVRFIGxpc3Rpbmc8YnI+c3RhdHVzOiBwZW5kaW5nIl0KICAgIGVuZA==)
 
 ### 3b. Fund Release Data Flow
 
 Shows how data moves when a seller confirms the handoff and funds are released.
 
-```mermaid
-graph LR
-    subgraph "Seller Action"
-        A["POST /escrow/confirm"] --> B["Verify seller\nrole + status"]
-    end
-
-    subgraph "On-Chain Release"
-        B --> C["encodeFunctionData()\nUSDC.transfer(seller, total)"]
-        C --> D["Privy sendTransaction()\nfrom escrow wallet"]
-        D --> E["Base Sepolia\nUSDC confirmed"]
-    end
-
-    subgraph "Database"
-        E --> F["escrow.status\n= released"]
-        F --> G["listing.status\n= sold"]
-    end
-
-    subgraph "Notifications"
-        G --> H["Email buyer\nvia Resend"]
-        G --> I["Email seller\nvia Resend"]
-    end
-```
+![Fund Release Data Flow](https://mermaid.ink/img/Z3JhcGggTFIKICAgIHN1YmdyYXBoICJTZWxsZXIgQWN0aW9uIgogICAgICAgIEFbIlBPU1QgL2VzY3Jvdy9jb25maXJtIl0gLS0+IEJbIlZlcmlmeSBzZWxsZXI8YnI+cm9sZSArIHN0YXR1cyJdCiAgICBlbmQKCiAgICBzdWJncmFwaCAiT24tQ2hhaW4gUmVsZWFzZSIKICAgICAgICBCIC0tPiBDWyJlbmNvZGVGdW5jdGlvbkRhdGEoKTxicj5VU0RDLnRyYW5zZmVyKHNlbGxlciwgdG90YWwpIl0KICAgICAgICBDIC0tPiBEWyJQcml2eSBzZW5kVHJhbnNhY3Rpb24oKTxicj5mcm9tIGVzY3JvdyB3YWxsZXQiXQogICAgICAgIEQgLS0+IEVbIkJhc2UgU2Vwb2xpYTxicj5VU0RDIGNvbmZpcm1lZCJdCiAgICBlbmQKCiAgICBzdWJncmFwaCAiRGF0YWJhc2UiCiAgICAgICAgRSAtLT4gRlsiZXNjcm93LnN0YXR1czxicj49IHJlbGVhc2VkIl0KICAgICAgICBGIC0tPiBHWyJsaXN0aW5nLnN0YXR1czxicj49IHNvbGQiXQogICAgZW5kCgogICAgc3ViZ3JhcGggIk5vdGlmaWNhdGlvbnMiCiAgICAgICAgRyAtLT4gSFsiRW1haWwgYnV5ZXI8YnI+dmlhIFJlc2VuZCJdCiAgICAgICAgRyAtLT4gSVsiRW1haWwgc2VsbGVyPGJyPnZpYSBSZXNlbmQiXQogICAgZW5k)
 
 ---
 
 ## 4. Escrow State Machine
 
-```mermaid
-stateDiagram-v2
-    [*] --> deposited : Buyer deposits USDC
-
-    deposited --> accepted : Seller accepts
-    deposited --> rejected : Seller rejects → refund
-    deposited --> cancelled : Buyer cancels → refund
-    deposited --> expired : 48h timeout → auto-refund
-    deposited --> disputed : Either party disputes
-
-    accepted --> buyer_confirmed : Buyer confirms + pays remaining
-    accepted --> cancelled : Buyer cancels → refund
-    accepted --> disputed : Either party disputes
-
-    buyer_confirmed --> released : Seller confirms → funds released
-    buyer_confirmed --> disputed : Either party disputes
-
-    released --> [*]
-    rejected --> [*]
-    cancelled --> [*]
-    expired --> [*]
-    disputed --> [*]
-```
+![Escrow State Machine](https://mermaid.ink/img/c3RhdGVEaWFncmFtLXYyCiAgICBbKl0gLS0+IGRlcG9zaXRlZCA6IEJ1eWVyIGRlcG9zaXRzIFVTREMKCiAgICBkZXBvc2l0ZWQgLS0+IGFjY2VwdGVkIDogU2VsbGVyIGFjY2VwdHMKICAgIGRlcG9zaXRlZCAtLT4gcmVqZWN0ZWQgOiBTZWxsZXIgcmVqZWN0cyAtPiByZWZ1bmQKICAgIGRlcG9zaXRlZCAtLT4gY2FuY2VsbGVkIDogQnV5ZXIgY2FuY2VscyAtPiByZWZ1bmQKICAgIGRlcG9zaXRlZCAtLT4gZXhwaXJlZCA6IDQ4aCB0aW1lb3V0IC0+IGF1dG8tcmVmdW5kCiAgICBkZXBvc2l0ZWQgLS0+IGRpc3B1dGVkIDogRWl0aGVyIHBhcnR5IGRpc3B1dGVzCgogICAgYWNjZXB0ZWQgLS0+IGJ1eWVyX2NvbmZpcm1lZCA6IEJ1eWVyIGNvbmZpcm1zICsgcGF5cyByZW1haW5pbmcKICAgIGFjY2VwdGVkIC0tPiBjYW5jZWxsZWQgOiBCdXllciBjYW5jZWxzIC0+IHJlZnVuZAogICAgYWNjZXB0ZWQgLS0+IGRpc3B1dGVkIDogRWl0aGVyIHBhcnR5IGRpc3B1dGVzCgogICAgYnV5ZXJfY29uZmlybWVkIC0tPiByZWxlYXNlZCA6IFNlbGxlciBjb25maXJtcyAtPiBmdW5kcyByZWxlYXNlZAogICAgYnV5ZXJfY29uZmlybWVkIC0tPiBkaXNwdXRlZCA6IEVpdGhlciBwYXJ0eSBkaXNwdXRlcwoKICAgIHJlbGVhc2VkIC0tPiBbKl0KICAgIHJlamVjdGVkIC0tPiBbKl0KICAgIGNhbmNlbGxlZCAtLT4gWypdCiAgICBleHBpcmVkIC0tPiBbKl0KICAgIGRpc3B1dGVkIC0tPiBbKl0=)
 
 | State | Who Acts Next | What Happens | On-Chain Effect |
 |-------|--------------|--------------|-----------------|
@@ -365,76 +128,11 @@ The phone number is:
 
 ### Agent Coordination Flow
 
-```mermaid
-sequenceDiagram
-    actor Buyer
-    actor Seller
-    participant UI as Escrow UI
-    participant EF as niche-api
-    participant Agent as Meetup Agent
-    participant SMS as Twilio SMS
-
-    Note over EF: Escrow status → accepted
-    EF-->>UI: Show phone number input
-
-    Buyer->>UI: Enter phone number
-    UI->>Agent: Register buyer phone (encrypted, bypasses app DB)
-
-    Seller->>UI: Enter phone number
-    UI->>Agent: Register seller phone (encrypted, bypasses app DB)
-
-    Note over Agent: Both phones registered — begin coordination
-
-    Agent->>SMS: Text buyer
-    SMS->>Buyer: "Hi! I'm coordinating your Mac Mini meetup. What area and times work for you?"
-    Buyer-->>SMS: "Downtown SF, weekday evenings"
-    SMS->>Agent: Forward reply
-
-    Agent->>SMS: Text seller
-    SMS->>Seller: "Buyer is available downtown, weekday evenings. Does that work? I'd suggest Apple Store Union Square or a nearby coffee shop."
-    Seller-->>SMS: "Apple Store Thursday 6pm works"
-    SMS->>Agent: Forward reply
-
-    Agent->>SMS: Text buyer
-    SMS->>Buyer: "Seller suggests Apple Store Union Square, Thursday 6pm. Confirm? (Reply YES or suggest alternative)"
-    Buyer-->>SMS: "YES"
-    SMS->>Agent: Forward confirmation
-
-    Agent->>SMS: Text seller
-    SMS->>Seller: "Confirmed! Apple Store Union Square, Thursday 6pm. Safety tips: meet in the store, inspect the item before confirming in the app."
-
-    Agent->>EF: POST /escrow/:id/messages (system message)
-    EF-->>UI: "✅ Meetup confirmed via agent — Thursday 6pm"
-
-    Note over Agent: Auto-delete phone numbers after 72h
-```
+![Agent Coordination Flow](https://mermaid.ink/img/c2VxdWVuY2VEaWFncmFtCiAgICBhY3RvciBCdXllcgogICAgYWN0b3IgU2VsbGVyCiAgICBwYXJ0aWNpcGFudCBVSSBhcyBFc2Nyb3cgVUkKICAgIHBhcnRpY2lwYW50IEVGIGFzIG5pY2hlLWFwaQogICAgcGFydGljaXBhbnQgQWdlbnQgYXMgTWVldHVwIEFnZW50CiAgICBwYXJ0aWNpcGFudCBTTVMgYXMgVHdpbGlvIFNNUwoKICAgIE5vdGUgb3ZlciBFRjogRXNjcm93IHN0YXR1cyAtPiBhY2NlcHRlZAogICAgRUYtLT4-VUk6IFNob3cgcGhvbmUgbnVtYmVyIGlucHV0CgogICAgQnV5ZXItPj5VSTogRW50ZXIgcGhvbmUgbnVtYmVyCiAgICBVSS0-PkFnZW50OiBSZWdpc3RlciBidXllciBwaG9uZSAoZW5jcnlwdGVkLCBieXBhc3NlcyBhcHAgREIpCgogICAgU2VsbGVyLT4-VUk6IEVudGVyIHBob25lIG51bWJlcgogICAgVUktPj5BZ2VudDogUmVnaXN0ZXIgc2VsbGVyIHBob25lIChlbmNyeXB0ZWQsIGJ5cGFzc2VzIGFwcCBEQikKCiAgICBOb3RlIG92ZXIgQWdlbnQ6IEJvdGggcGhvbmVzIHJlZ2lzdGVyZWQgLSBiZWdpbiBjb29yZGluYXRpb24KCiAgICBBZ2VudC0-PlNNUzogVGV4dCBidXllcgogICAgU01TLT4-QnV5ZXI6IEhpISBJbSBjb29yZGluYXRpbmcgeW91ciBNYWMgTWluaSBtZWV0dXAuIFdoYXQgYXJlYSBhbmQgdGltZXMgd29yayBmb3IgeW91PwogICAgQnV5ZXItLT4-U01TOiBEb3dudG93biBTRiwgd2Vla2RheSBldmVuaW5ncwogICAgU01TLT4-QWdlbnQ6IEZvcndhcmQgcmVwbHkKCiAgICBBZ2VudC0-PlNNUzogVGV4dCBzZWxsZXIKICAgIFNNUy0-PlNlbGxlcjogQnV5ZXIgaXMgYXZhaWxhYmxlIGRvd250b3duLCB3ZWVrZGF5IGV2ZW5pbmdzLiBJZCBzdWdnZXN0IEFwcGxlIFN0b3JlIFVuaW9uIFNxdWFyZS4KICAgIFNlbGxlci0tPj5TTVM6IEFwcGxlIFN0b3JlIFRodXJzZGF5IDZwbSB3b3JrcwogICAgU01TLT4-QWdlbnQ6IEZvcndhcmQgcmVwbHkKCiAgICBBZ2VudC0-PlNNUzogVGV4dCBidXllcgogICAgU01TLT4-QnV5ZXI6IFNlbGxlciBzdWdnZXN0cyBBcHBsZSBTdG9yZSBVbmlvbiBTcXVhcmUsIFRodXJzZGF5IDZwbS4gQ29uZmlybT8KICAgIEJ1eWVyLS0-PlNNUzogWUVTCiAgICBTTVMtPj5BZ2VudDogRm9yd2FyZCBjb25maXJtYXRpb24KCiAgICBBZ2VudC0-PlNNUzogVGV4dCBzZWxsZXIKICAgIFNNUy0-PlNlbGxlcjogQ29uZmlybWVkISBBcHBsZSBTdG9yZSBVbmlvbiBTcXVhcmUsIFRodXJzZGF5IDZwbS4KCiAgICBBZ2VudC0-PkVGOiBQT1NUIC9lc2Nyb3cvOmlkL21lc3NhZ2VzIChzeXN0ZW0gbWVzc2FnZSkKICAgIEVGLS0-PlVJOiBNZWV0dXAgY29uZmlybWVkIHZpYSBhZ2VudCAtIFRodXJzZGF5IDZwbQoKICAgIE5vdGUgb3ZlciBBZ2VudDogQXV0by1kZWxldGUgcGhvbmUgbnVtYmVycyBhZnRlciA3Mmg=)
 
 ### Privacy Boundary
 
-```mermaid
-graph TB
-    subgraph AppDomain["App Domain — Supabase"]
-        DB["PostgreSQL"]
-        EF["Edge Function"]
-        Chat["Messages Table"]
-
-        DB -.- NoPhone["✗ No phone numbers"]
-        DB -.- NoLocation["✗ No addresses or GPS"]
-        Chat -.- OnlyConfirm["✓ Only confirmation summary\n'Meetup confirmed — Thursday 6pm'"]
-    end
-
-    subgraph AgentDomain["Agent Domain — Twilio"]
-        TW["Twilio SMS Service"]
-        AI["AI Coordination Agent"]
-        Ephemeral["Ephemeral Phone Store\n72h auto-delete"]
-    end
-
-    EF -->|"Escrow ID only\n(no PII)"| AI
-    UI2["Escrow UI"] -->|"Phone number\n(one-time, encrypted)"| AI
-    AI -->|"SMS via"| TW
-    AI -->|"Confirmation summary\n(no address)"| EF
-    TW -->|"Stores in"| Ephemeral
-```
+![Privacy Boundary](https://mermaid.ink/img/Z3JhcGggVEIKICAgIHN1YmdyYXBoIEFwcERvbWFpblsiQXBwIERvbWFpbiAtIFN1cGFiYXNlIl0KICAgICAgICBEQlsiUG9zdGdyZVNRTCJdCiAgICAgICAgRUZbIkVkZ2UgRnVuY3Rpb24iXQogICAgICAgIENoYXRbIk1lc3NhZ2VzIFRhYmxlIl0KCiAgICAgICAgREIgLS4tIE5vUGhvbmVbIk5vIHBob25lIG51bWJlcnMiXQogICAgICAgIERCIC0uLSBOb0xvY2F0aW9uWyJObyBhZGRyZXNzZXMgb3IgR1BTIl0KICAgICAgICBDaGF0IC0uLSBPbmx5Q29uZmlybVsiT25seSBjb25maXJtYXRpb24gc3VtbWFyeTxicj5NZWV0dXAgY29uZmlybWVkIC0gVGh1cnNkYXkgNnBtIl0KICAgIGVuZAoKICAgIHN1YmdyYXBoIEFnZW50RG9tYWluWyJBZ2VudCBEb21haW4gLSBUd2lsaW8iXQogICAgICAgIFRXWyJUd2lsaW8gU01TIFNlcnZpY2UiXQogICAgICAgIEFJWyJBSSBDb29yZGluYXRpb24gQWdlbnQiXQogICAgICAgIEVwaGVtZXJhbFsiRXBoZW1lcmFsIFBob25lIFN0b3JlPGJyPjcyaCBhdXRvLWRlbGV0ZSJdCiAgICBlbmQKCiAgICBFRiAtLT58IkVzY3JvdyBJRCBvbmx5InwgQUkKICAgIFVJMlsiRXNjcm93IFVJIl0gLS0+fCJQaG9uZSBudW1iZXIgKGVuY3J5cHRlZCkifCBBSQogICAgQUkgLS0+fCJTTVMgdmlhInwgVFcKICAgIEFJIC0tPnwiQ29uZmlybWF0aW9uIHN1bW1hcnkifCBFRgogICAgVFcgLS0+fCJTdG9yZXMgaW4ifCBFcGhlbWVyYWw=)
 
 ### What Lives Where
 
@@ -514,45 +212,7 @@ All financial transactions (deposit, remaining payment) require a passkey assert
 
 ## 7. Deployment Architecture
 
-```mermaid
-graph TB
-    subgraph Vercel["Vercel"]
-        UI["niche-ui\nNext.js 15\nSSR + Static"]
-    end
-
-    subgraph Supabase["Supabase"]
-        EF["niche-api\nDeno Edge Function"]
-        PG["PostgreSQL"]
-        REST["PostgREST"]
-        Vault["Vault\n(encrypted secrets)"]
-    end
-
-    subgraph PrivyCloud["Privy"]
-        Auth["OAuth + Passkeys"]
-        Wallets["Server Wallets"]
-        Gas["Gas Sponsorship"]
-    end
-
-    subgraph BaseSepolia["Base Sepolia"]
-        USDC["USDC Contract"]
-    end
-
-    subgraph Comms["Communications"]
-        ResendSvc["Resend · Email"]
-        TwilioSvc["Twilio · SMS"]
-    end
-
-    UI --> EF
-    UI --> REST
-    EF --> PG
-    EF --> Vault
-    EF --> Auth
-    EF --> Wallets
-    Wallets --> USDC
-    Gas --> USDC
-    EF --> ResendSvc
-    EF --> TwilioSvc
-```
+![Deployment Architecture](https://mermaid.ink/img/Z3JhcGggVEIKICAgIHN1YmdyYXBoIFZlcmNlbFsiVmVyY2VsIl0KICAgICAgICBVSVsibmljaGUtdWk8YnI+TmV4dC5qcyAxNTxicj5TU1IgKyBTdGF0aWMiXQogICAgZW5kCgogICAgc3ViZ3JhcGggU3VwYWJhc2VbIlN1cGFiYXNlIl0KICAgICAgICBFRlsibmljaGUtYXBpPGJyPkRlbm8gRWRnZSBGdW5jdGlvbiJdCiAgICAgICAgUEdbIlBvc3RncmVTUUwiXQogICAgICAgIFJFU1RbIlBvc3RnUkVTVCJdCiAgICAgICAgVmF1bHRbIlZhdWx0PGJyPihlbmNyeXB0ZWQgc2VjcmV0cykiXQogICAgZW5kCgogICAgc3ViZ3JhcGggUHJpdnlDbG91ZFsiUHJpdnkiXQogICAgICAgIEF1dGhbIk9BdXRoICsgUGFzc2tleXMiXQogICAgICAgIFdhbGxldHNbIlNlcnZlciBXYWxsZXRzIl0KICAgICAgICBHYXNbIkdhcyBTcG9uc29yc2hpcCJdCiAgICBlbmQKCiAgICBzdWJncmFwaCBCYXNlU2Vwb2xpYVsiQmFzZSBTZXBvbGlhIl0KICAgICAgICBVU0RDWyJVU0RDIENvbnRyYWN0Il0KICAgIGVuZAoKICAgIHN1YmdyYXBoIENvbW1zWyJDb21tdW5pY2F0aW9ucyJdCiAgICAgICAgUmVzZW5kU3ZjWyJSZXNlbmQgwrcgRW1haWwiXQogICAgICAgIFR3aWxpb1N2Y1siVHdpbGlvIMK3IFNNUyJdCiAgICBlbmQKCiAgICBVSSAtLT4gRUYKICAgIFVJIC0tPiBSRVNUCiAgICBFRiAtLT4gUEcKICAgIEVGIC0tPiBWYXVsdAogICAgRUYgLS0+IEF1dGgKICAgIEVGIC0tPiBXYWxsZXRzCiAgICBXYWxsZXRzIC0tPiBVU0RDCiAgICBHYXMgLS0+IFVTREMKICAgIEVGIC0tPiBSZXNlbmRTdmMKICAgIEVGIC0tPiBUd2lsaW9TdmM=)
 
 ### Environment Variables
 
@@ -582,87 +242,7 @@ graph TB
 
 ## 8. Database Schema
 
-```mermaid
-erDiagram
-    users {
-        uuid id PK
-        text channel_id
-        text channel_type
-        text wallet_address
-        text display_name
-        text twitter_username
-        text twitter_user_id
-        text passkey_public_key
-        text passkey_credential_id
-        timestamptz created_at
-    }
-
-    listings {
-        uuid id PK
-        uuid user_id FK
-        text item_name
-        numeric price
-        numeric min_deposit
-        text item_description
-        text category
-        text status
-        text chip
-        integer ram
-        integer storage
-        text condition
-        integer year
-        boolean has_warranty
-        boolean includes_box
-        text includes_accessories
-        timestamptz created_at
-    }
-
-    escrows {
-        uuid id PK
-        uuid listing_id FK
-        uuid buyer_id FK
-        uuid seller_id FK
-        numeric deposit_amount
-        numeric total_price
-        numeric remaining_amount
-        text currency
-        text escrow_service
-        text status
-        boolean buyer_confirmed
-        boolean seller_confirmed
-        text deposit_tx_hash
-        text remaining_payment_tx_hash
-        text release_tx_hash
-        timestamptz accepted_at
-        timestamptz expires_at
-        timestamptz confirmed_at
-        timestamptz created_at
-    }
-
-    messages {
-        uuid id PK
-        uuid escrow_id FK
-        uuid sender_id FK
-        text body
-        timestamptz created_at
-    }
-
-    watches {
-        uuid id PK
-        uuid user_id FK
-        text[] categories
-        numeric max_price
-        timestamptz created_at
-    }
-
-    users ||--o{ listings : "sells"
-    users ||--o{ escrows : "buys as buyer_id"
-    users ||--o{ escrows : "sells as seller_id"
-    users ||--o{ messages : "sends"
-    users ||--o{ watches : "watches"
-    listings ||--o{ escrows : "claimed via"
-    escrows ||--o{ messages : "contains"
-```
+![Database Schema](https://mermaid.ink/img/ZXJEaWFncmFtCiAgICB1c2VycyB7CiAgICAgICAgdXVpZCBpZCBQSwogICAgICAgIHRleHQgY2hhbm5lbF9pZAogICAgICAgIHRleHQgY2hhbm5lbF90eXBlCiAgICAgICAgdGV4dCB3YWxsZXRfYWRkcmVzcwogICAgICAgIHRleHQgZGlzcGxheV9uYW1lCiAgICAgICAgdGV4dCB0d2l0dGVyX3VzZXJuYW1lCiAgICAgICAgdGV4dCB0d2l0dGVyX3VzZXJfaWQKICAgICAgICB0ZXh0IHBhc3NrZXlfcHVibGljX2tleQogICAgICAgIHRleHQgcGFzc2tleV9jcmVkZW50aWFsX2lkCiAgICAgICAgdGltZXN0YW1wdHogY3JlYXRlZF9hdAogICAgfQoKICAgIGxpc3RpbmdzIHsKICAgICAgICB1dWlkIGlkIFBLCiAgICAgICAgdXVpZCB1c2VyX2lkIEZLCiAgICAgICAgdGV4dCBpdGVtX25hbWUKICAgICAgICBudW1lcmljIHByaWNlCiAgICAgICAgbnVtZXJpYyBtaW5fZGVwb3NpdAogICAgICAgIHRleHQgaXRlbV9kZXNjcmlwdGlvbgogICAgICAgIHRleHQgY2F0ZWdvcnkKICAgICAgICB0ZXh0IHN0YXR1cwogICAgICAgIHRleHQgY2hpcAogICAgICAgIGludGVnZXIgcmFtCiAgICAgICAgaW50ZWdlciBzdG9yYWdlCiAgICAgICAgdGV4dCBjb25kaXRpb24KICAgICAgICBpbnRlZ2VyIHllYXIKICAgICAgICBib29sZWFuIGhhc193YXJyYW50eQogICAgICAgIGJvb2xlYW4gaW5jbHVkZXNfYm94CiAgICAgICAgdGV4dCBpbmNsdWRlc19hY2Nlc3NvcmllcwogICAgICAgIHRpbWVzdGFtcHR6IGNyZWF0ZWRfYXQKICAgIH0KCiAgICBlc2Nyb3dzIHsKICAgICAgICB1dWlkIGlkIFBLCiAgICAgICAgdXVpZCBsaXN0aW5nX2lkIEZLCiAgICAgICAgdXVpZCBidXllcl9pZCBGSwogICAgICAgIHV1aWQgc2VsbGVyX2lkIEZLCiAgICAgICAgbnVtZXJpYyBkZXBvc2l0X2Ftb3VudAogICAgICAgIG51bWVyaWMgdG90YWxfcHJpY2UKICAgICAgICBudW1lcmljIHJlbWFpbmluZ19hbW91bnQKICAgICAgICB0ZXh0IGN1cnJlbmN5CiAgICAgICAgdGV4dCBlc2Nyb3dfc2VydmljZQogICAgICAgIHRleHQgc3RhdHVzCiAgICAgICAgYm9vbGVhbiBidXllcl9jb25maXJtZWQKICAgICAgICBib29sZWFuIHNlbGxlcl9jb25maXJtZWQKICAgICAgICB0ZXh0IGRlcG9zaXRfdHhfaGFzaAogICAgICAgIHRleHQgcmVtYWluaW5nX3BheW1lbnRfdHhfaGFzaAogICAgICAgIHRleHQgcmVsZWFzZV90eF9oYXNoCiAgICAgICAgdGltZXN0YW1wdHogYWNjZXB0ZWRfYXQKICAgICAgICB0aW1lc3RhbXB0eiBleHBpcmVzX2F0CiAgICAgICAgdGltZXN0YW1wdHogY29uZmlybWVkX2F0CiAgICAgICAgdGltZXN0YW1wdHogY3JlYXRlZF9hdAogICAgfQoKICAgIG1lc3NhZ2VzIHsKICAgICAgICB1dWlkIGlkIFBLCiAgICAgICAgdXVpZCBlc2Nyb3dfaWQgRksKICAgICAgICB1dWlkIHNlbmRlcl9pZCBGSwogICAgICAgIHRleHQgYm9keQogICAgICAgIHRpbWVzdGFtcHR6IGNyZWF0ZWRfYXQKICAgIH0KCiAgICB3YXRjaGVzIHsKICAgICAgICB1dWlkIGlkIFBLCiAgICAgICAgdXVpZCB1c2VyX2lkIEZLCiAgICAgICAgdGV4dCBjYXRlZ29yaWVzCiAgICAgICAgbnVtZXJpYyBtYXhfcHJpY2UKICAgICAgICB0aW1lc3RhbXB0eiBjcmVhdGVkX2F0CiAgICB9CgogICAgdXNlcnMgfHwtLW97IGxpc3RpbmdzIDogc2VsbHMKICAgIHVzZXJzIHx8LS1veyBlc2Nyb3dzIDogYnV5cyBhcyBidXllcl9pZAogICAgdXNlcnMgfHwtLW97IGVzY3Jvd3MgOiBzZWxscyBhcyBzZWxsZXJfaWQKICAgIHVzZXJzIHx8LS1veyBtZXNzYWdlcyA6IHNlbmRzCiAgICB1c2VycyB8fC0tb3sgd2F0Y2hlcyA6IHdhdGNoZXMKICAgIGxpc3RpbmdzIHx8LS1veyBlc2Nyb3dzIDogY2xhaW1lZCB2aWEKICAgIGVzY3Jvd3MgfHwtLW97IG1lc3NhZ2VzIDogY29udGFpbnM=)
 
 ### Indexes
 
