@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import { saveAuth } from "@/lib/auth";
-import { API_BASE, SUPABASE_ANON_KEY } from "@/lib/api";
+import { authedFetch } from "@/lib/authed-api";
 
 function SetupPasskeyInner() {
   const { user, authenticated } = usePrivy();
@@ -75,17 +75,11 @@ function SetupPasskeyInner() {
         String.fromCharCode(...new Uint8Array(response.getPublicKey()!))
       );
 
-      // Create wallet via backend
+      // Create wallet via backend (JWT-authenticated)
       setStatus({ msg: "Creating wallet...", type: "loading" });
-      const walletRes = await fetch(`${API_BASE}/auth/wallet`, {
+      const walletRes = await authedFetch("/auth/wallet", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
         body: JSON.stringify({
-          privyUserId: user.id,
           twitterUsername,
           twitterUserId,
           passkey: {

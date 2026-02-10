@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getAuth } from "@/lib/auth";
-import { API_BASE, SUPABASE_ANON_KEY } from "@/lib/api";
+import { authedFetch } from "@/lib/authed-api";
 import type { EscrowMessage } from "@/lib/types";
 
 interface Props {
@@ -26,15 +26,9 @@ export function EscrowChat({ escrowId, buyerId, sellerId }: Props) {
   const fetchMessages = useCallback(async () => {
     if (!auth?.wallet) return;
     try {
-      const res = await fetch(
-        `${API_BASE}/escrow/${escrowId}/messages?wallet=${auth.wallet}`,
-        {
-          cache: "no-store",
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-        }
+      const res = await authedFetch(
+        `/escrow/${escrowId}/messages`,
+        { cache: "no-store" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -67,17 +61,9 @@ export function EscrowChat({ escrowId, buyerId, sellerId }: Props) {
     setSending(true);
 
     try {
-      const res = await fetch(`${API_BASE}/escrow/${escrowId}/messages`, {
+      const res = await authedFetch(`/escrow/${escrowId}/messages`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          walletAddress: auth.wallet,
-          message: msg,
-        }),
+        body: JSON.stringify({ message: msg }),
       });
 
       if (res.ok) {

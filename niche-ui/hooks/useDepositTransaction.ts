@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSendTransaction } from "@privy-io/react-auth";
 import { encodeFunctionData } from "viem";
 import { getAuth } from "@/lib/auth";
-import { API_BASE, SUPABASE_ANON_KEY } from "@/lib/api";
+import { authedFetch } from "@/lib/authed-api";
 
 interface UseDepositProps {
   listingId: string;
@@ -105,17 +105,10 @@ export function useDepositTransaction({
       setStatus("Recording escrow...");
 
       // 3. Record on backend
-      const res = await fetch(`${API_BASE}/escrow/deposit`, {
+      const res = await authedFetch("/escrow/deposit", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
         body: JSON.stringify({
           listingId,
-          buyerWallet: auth.wallet,
-          buyerUserId: auth.userId || auth.privyUserId,
           depositAmount: minDeposit,
           totalPrice: price,
           transactionHash: txResponse.hash,

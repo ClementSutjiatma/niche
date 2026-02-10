@@ -1,7 +1,8 @@
 'use client';
 
-import { PrivyProvider } from '@privy-io/react-auth';
+import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
 import { ReactNode, useEffect } from 'react';
+import { registerTokenGetter } from '@/lib/authed-api';
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID!;
 
@@ -49,7 +50,18 @@ export function Providers({ children }: { children: ReactNode }) {
         },
       }}
     >
-      {children}
+      <AuthRegistrar>{children}</AuthRegistrar>
     </PrivyProvider>
   );
+}
+
+/** Registers the Privy getAccessToken function for authed API calls. */
+function AuthRegistrar({ children }: { children: ReactNode }) {
+  const { getAccessToken } = usePrivy();
+
+  useEffect(() => {
+    registerTokenGetter(getAccessToken);
+  }, [getAccessToken]);
+
+  return <>{children}</>;
 }

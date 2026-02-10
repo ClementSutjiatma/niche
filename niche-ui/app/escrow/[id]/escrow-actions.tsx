@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSendTransaction } from "@privy-io/react-auth";
 import { encodeFunctionData } from "viem";
 import { getAuth } from "@/lib/auth";
-import { API_BASE, SUPABASE_ANON_KEY } from "@/lib/api";
+import { authedFetch } from "@/lib/authed-api";
 import type { Escrow } from "@/lib/types";
 import { EscrowChat } from "@/components/escrow-chat";
 
@@ -45,17 +45,9 @@ export function EscrowActions({ escrow }: Props) {
     setStatus({ msg: "Accepting deposit...", type: "loading" });
 
     try {
-      const r = await fetch(`${API_BASE}/escrow/accept`, {
+      const r = await authedFetch("/escrow/accept", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          escrowId: escrow.id,
-          walletAddress: auth.wallet,
-        }),
+        body: JSON.stringify({ escrowId: escrow.id }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Failed to accept");
@@ -76,17 +68,9 @@ export function EscrowActions({ escrow }: Props) {
     setStatus({ msg: "Rejecting and refunding...", type: "loading" });
 
     try {
-      const r = await fetch(`${API_BASE}/escrow/reject`, {
+      const r = await authedFetch("/escrow/reject", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          escrowId: escrow.id,
-          walletAddress: auth.wallet,
-        }),
+        body: JSON.stringify({ escrowId: escrow.id }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Failed to reject");
@@ -106,17 +90,9 @@ export function EscrowActions({ escrow }: Props) {
     setStatus({ msg: "Cancelling deposit...", type: "loading" });
 
     try {
-      const r = await fetch(`${API_BASE}/escrow/cancel`, {
+      const r = await authedFetch("/escrow/cancel", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          escrowId: escrow.id,
-          walletAddress: auth.wallet,
-        }),
+        body: JSON.stringify({ escrowId: escrow.id }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Failed to cancel");
@@ -197,16 +173,10 @@ export function EscrowActions({ escrow }: Props) {
       setStatus({ msg: "Confirming...", type: "loading" });
 
       // 3. Send to backend
-      const r = await fetch(`${API_BASE}/escrow/confirm`, {
+      const r = await authedFetch("/escrow/confirm", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
         body: JSON.stringify({
           escrowId: escrow.id,
-          walletAddress: auth.wallet,
           remainingPaymentTxHash: txResponse.hash,
           passkey: passkeyData,
         }),
@@ -235,17 +205,9 @@ export function EscrowActions({ escrow }: Props) {
     setStatus({ msg: "Confirming and releasing funds...", type: "loading" });
 
     try {
-      const r = await fetch(`${API_BASE}/escrow/confirm`, {
+      const r = await authedFetch("/escrow/confirm", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          escrowId: escrow.id,
-          walletAddress: auth.wallet,
-        }),
+        body: JSON.stringify({ escrowId: escrow.id }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Failed to confirm");
@@ -265,17 +227,9 @@ export function EscrowActions({ escrow }: Props) {
     setPhoneSubmitting(true);
 
     try {
-      const r = await fetch(`${API_BASE}/escrow/${escrow.id}/meetup/phone`, {
+      const r = await authedFetch(`/escrow/${escrow.id}/meetup/phone`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          walletAddress: auth.wallet,
-          phone: phoneInput.trim(),
-        }),
+        body: JSON.stringify({ phone: phoneInput.trim() }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Failed to submit phone");
@@ -296,18 +250,9 @@ export function EscrowActions({ escrow }: Props) {
     setStatus({ msg: "Filing dispute...", type: "loading" });
 
     try {
-      const r = await fetch(`${API_BASE}/escrow/dispute`, {
+      const r = await authedFetch("/escrow/dispute", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          escrowId: escrow.id,
-          walletAddress: auth.wallet,
-          reason,
-        }),
+        body: JSON.stringify({ escrowId: escrow.id, reason }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Dispute failed");

@@ -99,7 +99,7 @@ function HomePageContent() {
         <section className="border border-border bg-surface p-12 text-center fade-in">
           <h2 className="text-3xl font-bold mb-4">🤖 Integrate Niche Skill</h2>
           <p className="text-text-secondary mb-6">
-            Let your AI agent watch prices, detect deals, and manage escrows 24/7
+            Easily buy and sell Mac Minis from your openclaw agent
           </p>
 
           <div className="bg-bg border border-border p-6 max-w-2xl mx-auto text-left">

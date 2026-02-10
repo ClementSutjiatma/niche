@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { getAuth, clearAuth } from "@/lib/auth";
-import { API_BASE, SUPABASE_ANON_KEY } from "@/lib/api";
+import { authedFetch } from "@/lib/authed-api";
 import type { AuthState } from "@/lib/types";
 
 export function Nav() {
@@ -32,12 +32,7 @@ export function Nav() {
 
     async function fetchBalance() {
       try {
-        const res = await fetch(`${API_BASE}/wallet/balance/${walletId}`, {
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-        });
+        const res = await authedFetch(`/wallet/balance/${walletId}`);
         if (res.ok && mounted) {
           const data = await res.json();
           setBalance(data.balance || "0");

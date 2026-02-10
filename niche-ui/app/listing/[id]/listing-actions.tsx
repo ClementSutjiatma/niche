@@ -6,7 +6,8 @@ import Link from "next/link";
 import { useWallets, useSendTransaction } from "@privy-io/react-auth";
 import { encodeFunctionData } from "viem";
 import { getAuth } from "@/lib/auth";
-import { API_BASE, BASESCAN_TX_URL, SUPABASE_ANON_KEY } from "@/lib/api";
+import { API_BASE, BASESCAN_TX_URL } from "@/lib/api";
+import { authedFetch } from "@/lib/authed-api";
 import type { Escrow, EscrowDepositResponse } from "@/lib/types";
 
 interface Props {
@@ -46,13 +47,7 @@ export function ListingActions({
     try {
       const res = await fetch(
         `${API_BASE}/escrow/by-listing/${listingId}`,
-        {
-          cache: "no-store",
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-        }
+        { cache: "no-store" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -188,27 +183,14 @@ export function ListingActions({
       setStatus({ msg: "Recording escrow...", type: "loading" });
 
       // 4. Send transaction details to server for verification & recording
-      const r = await fetch(`${API_BASE}/escrow/deposit`, {
+      const r = await authedFetch("/escrow/deposit", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
         body: JSON.stringify({
           listingId,
-          buyerWallet: currentAuth.wallet,
-          buyerUserId: currentAuth.userId || currentAuth.privyUserId,
           depositAmount: minDeposit,
           totalPrice: price,
           transactionHash: txResponse.hash,
           passkey: passkeyData,
-          challengeParams: {
-            listingId,
-            wallet: currentAuth.wallet,
-            amount: minDeposit,
-            timestamp,
-          },
         }),
       });
 

@@ -13,7 +13,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { PrivyClient } from "npm:@privy-io/node@0.2.0";
 import { encodeFunctionData, erc20Abi } from "npm:viem@2";
-import { Resend } from "npm:resend@3";
+
 
 // --- Config (from Supabase Vault / env) ---
 
@@ -36,10 +36,6 @@ const BASE_SEPOLIA_CAIP2 = `eip155:${BASE_SEPOLIA_CHAIN_ID}`;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const privy = new PrivyClient(PRIVY_APP_ID, PRIVY_APP_SECRET);
 
-// Resend email service
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
-const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
-
 // Twilio SMS service (for meetup coordination)
 const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID") || "";
 const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") || "";
@@ -47,6 +43,9 @@ const TWILIO_PHONE_NUMBER = Deno.env.get("TWILIO_PHONE_NUMBER") || "";
 
 // Anthropic API (for meetup coordination agent)
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+
+// Privy webhook signing secret (for verifying webhook signatures)
+const PRIVY_WEBHOOK_SIGNING_SECRET = Deno.env.get("PRIVY_WEBHOOK_SIGNING_SECRET") || "";
 
 /** Send SMS via Twilio REST API (no SDK needed for Deno) */
 async function sendSms(to: string, body: string): Promise<boolean> {
@@ -169,22 +168,191 @@ async function validateTwilioSignature(req: Request, rawBody: string): Promise<b
 
 // --- Helpers ---
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-auth-token",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
-};
+// CORS: restrict to known origins (Vercel deploys + local dev)
+const ALLOWED_ORIGINS = [
+  "https://niche-ui-eight.vercel.app",
+  "http://localhost:3000",
+  "http://localhost:3001",
+];
+
+function getCorsHeaders(origin?: string | null): Record<string, string> {
+  const isAllowed = origin && (
+    ALLOWED_ORIGINS.includes(origin) ||
+    // Allow all Vercel preview deploys
+    /^https:\/\/niche-.*\.vercel\.app$/.test(origin) ||
+    origin.endsWith("-clement-sutjiatmas-projects.vercel.app")
+  );
+  return {
+    "Access-Control-Allow-Origin": isAllowed ? origin! : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers": "authorization, content-type",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Credentials": "true",
+  };
+}
+
+// Request-scoped CORS headers (set per-request in router)
+let _reqCorsHeaders: Record<string, string> = getCorsHeaders(null);
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ..._reqCorsHeaders, "Content-Type": "application/json" },
   });
 }
 
 function errorResponse(message: string, status = 400) {
   return json({ error: message }, status);
+}
+
+// --- Rate Limiting (in-memory, resets on cold start) ---
+
+const rateLimits = new Map<string, { count: number; resetAt: number }>();
+let rateLimitCleanupCounter = 0;
+
+function checkRateLimit(key: string, maxRequests: number, windowMs: number): boolean {
+  const now = Date.now();
+  const entry = rateLimits.get(key);
+  if (!entry || entry.resetAt <= now) {
+    rateLimits.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (entry.count >= maxRequests) return false;
+  entry.count++;
+  return true;
+}
+
+function rateLimitCleanup() {
+  if (++rateLimitCleanupCounter % 500 === 0) {
+    const now = Date.now();
+    for (const [key, entry] of rateLimits) {
+      if (entry.resetAt <= now) rateLimits.delete(key);
+    }
+  }
+}
+
+// --- JWT Authentication ---
+
+/**
+ * Verify the Privy JWT from the Authorization header.
+ * Returns the verified Privy user ID (did:privy:...).
+ */
+async function verifyAuth(req: Request): Promise<{ privyUserId: string }> {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    throw new Error("Missing or invalid Authorization header");
+  }
+  const token = authHeader.replace("Bearer ", "");
+  // Reject the Supabase anon key being used as bearer token (old pattern)
+  if (token === Deno.env.get("SUPABASE_ANON_KEY")) {
+    throw new Error("Invalid authentication token");
+  }
+  try {
+    const claims = await privy.verifyAuthToken(token);
+    return { privyUserId: claims.userId };
+  } catch (err) {
+    console.error("[AUTH] Token verification failed:", err);
+    throw new Error("Invalid or expired authentication token");
+  }
+}
+
+/**
+ * Look up the local DB user for a verified Privy user ID.
+ * First tries the fast path (privy_user_id column), then falls back
+ * to Privy API + channel_id lookup for users not yet backfilled.
+ */
+async function resolveUser(privyUserId: string): Promise<any | null> {
+  // Fast path: direct lookup by privy_user_id
+  const { data: user } = await supabase
+    .from("users")
+    .select("*")
+    .eq("privy_user_id", privyUserId)
+    .maybeSingle();
+  if (user) return user;
+
+  // Fallback: look up via Privy API to get linked accounts, then match
+  try {
+    const privyUser = await privy.getUser(privyUserId);
+
+    // Try Twitter first (primary auth method)
+    if (privyUser.twitter?.subject) {
+      const { data: twitterUser } = await supabase
+        .from("users")
+        .select("*")
+        .eq("channel_id", privyUser.twitter.subject)
+        .eq("channel_type", "twitter")
+        .maybeSingle();
+      if (twitterUser) {
+        // Backfill privy_user_id for future fast lookups
+        await supabase.from("users").update({ privy_user_id: privyUserId }).eq("id", twitterUser.id);
+        return twitterUser;
+      }
+    }
+
+    // Try email fallback
+    if (privyUser.email?.address) {
+      const { data: emailUser } = await supabase
+        .from("users")
+        .select("*")
+        .eq("channel_id", privyUser.email.address)
+        .eq("channel_type", "email")
+        .maybeSingle();
+      if (emailUser) {
+        await supabase.from("users").update({ privy_user_id: privyUserId }).eq("id", emailUser.id);
+        return emailUser;
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error("[AUTH] Failed to resolve user via Privy:", err);
+    return null;
+  }
+}
+
+/**
+ * Verify and resolve auth in one step. Returns the DB user.
+ * Throws on auth failure.
+ */
+async function requireAuth(req: Request): Promise<any> {
+  const { privyUserId } = await verifyAuth(req);
+  const user = await resolveUser(privyUserId);
+  if (!user) throw new Error("User not found");
+  return user;
+}
+
+// --- Privy Webhook Signature Verification ---
+
+async function verifyPrivyWebhookSignature(req: Request, rawBody: string): Promise<boolean> {
+  if (!PRIVY_WEBHOOK_SIGNING_SECRET) {
+    console.error("[PRIVY WEBHOOK] Webhook signing secret not configured — rejecting");
+    return false; // FAIL CLOSED
+  }
+
+  const signature = req.headers.get("privy-signature") || req.headers.get("svix-signature");
+  const timestamp = req.headers.get("privy-timestamp") || req.headers.get("svix-timestamp");
+  const webhookId = req.headers.get("privy-webhook-id") || req.headers.get("svix-id");
+
+  if (!signature || !timestamp) return false;
+
+  // Privy uses Svix: signed data = "<webhook-id>.<timestamp>.<body>"
+  const signedPayload = `${webhookId}.${timestamp}.${rawBody}`;
+
+  const encoder = new TextEncoder();
+  // Privy webhook secrets are base64-encoded, prefixed with "whsec_"
+  const secretBytes = Uint8Array.from(
+    atob(PRIVY_WEBHOOK_SIGNING_SECRET.replace("whsec_", "")),
+    (c) => c.charCodeAt(0)
+  );
+
+  const key = await crypto.subtle.importKey(
+    "raw", secretBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(signedPayload));
+  const expectedSig = "v1," + btoa(String.fromCharCode(...new Uint8Array(sig)));
+
+  // Svix may send multiple signatures separated by spaces
+  const signatures = signature.split(" ");
+  return signatures.some((s) => s === expectedSig);
 }
 
 /**
@@ -204,13 +372,13 @@ async function upsertUser(
   // Check if user exists by channel_id and channel_type
   const { data: existing } = await supabase
     .from("users")
-    .select("id, wallet_address, twitter_username, twitter_user_id, passkey_credential_id, passkey_public_key")
+    .select("id, wallet_address, twitter_username, twitter_user_id, passkey_credential_id, passkey_public_key, privy_user_id")
     .eq("channel_id", channelId)
     .eq("channel_type", channelType)
     .single();
 
   if (existing) {
-    // Update wallet and Twitter info if changed
+    // Update wallet, Twitter info, and privy_user_id if changed
     const updates: any = {};
     if (existing.wallet_address !== walletAddress) {
       updates.wallet_address = walletAddress;
@@ -220,6 +388,10 @@ async function upsertUser(
     }
     if (twitterUserId && existing.twitter_user_id !== twitterUserId) {
       updates.twitter_user_id = twitterUserId;
+    }
+    // Backfill privy_user_id for JWT auth resolution
+    if (privyUserId && !existing.privy_user_id) {
+      updates.privy_user_id = privyUserId;
     }
 
     if (Object.keys(updates).length > 0) {
@@ -241,6 +413,7 @@ async function upsertUser(
       display_name: displayName,
       twitter_username: twitterUsername,
       twitter_user_id: twitterUserId,
+      privy_user_id: privyUserId || null,
     })
     .select()
     .single();
@@ -402,12 +575,16 @@ async function handleAuthLookup(body: {
   // Layer 1: Check Supabase users table by channel_id
   const { data: user } = await supabase
     .from("users")
-    .select("id, wallet_address, channel_id, channel_type, display_name, twitter_username, twitter_user_id, passkey_credential_id, passkey_public_key")
+    .select("id, wallet_address, channel_id, channel_type, display_name, twitter_username, twitter_user_id, passkey_credential_id, passkey_public_key, privy_user_id")
     .eq("channel_id", channelId)
     .eq("channel_type", channelType)
     .single();
 
   if (user?.wallet_address) {
+    // Backfill privy_user_id if missing
+    if (privyUserId && !user.privy_user_id) {
+      await supabase.from("users").update({ privy_user_id: privyUserId }).eq("id", user.id);
+    }
     return json({
       found: true,
       wallet: user.wallet_address,
@@ -551,17 +728,8 @@ async function handleAuthWallet(body: {
       twitterUserId
     );
 
-    // Optionally store passkey info for signing later
-    if (passkey) {
-      await supabase
-        .from("users")
-        .update({
-          passkey_public_key: passkey.publicKey,
-          passkey_credential_id: passkey.credentialId,
-        })
-        .eq("channel_id", channelId)
-        .eq("channel_type", channelType);
-    }
+    // Note: passkey registration removed from this route for security.
+    // Use POST /auth/register-passkey (JWT-authenticated) instead.
 
     return json({
       wallet: wallet.address,
@@ -740,48 +908,9 @@ async function handleEscrowDeposit(body: {
     hasPasskey: !!buyer.passkey_credential_id
   });
 
-  // 2. Verify passkey assertion
-  // We verify that:
-  //  - The assertion contains valid authenticatorData and clientDataJSON
-  //  - The credential ID matches the user's registered passkey
-  //  - The challenge (if provided) matches the expected transaction parameters
-  // Full cryptographic verification of the signature requires the stored
-  // public key in COSE format + WebAuthn verification library. For the MVP
-  // we verify the structure and credential binding. The passkey_public_key
-  // column must be populated during registration for full verification.
-  if (buyer.passkey_credential_id) {
-    try {
-      // Decode the clientDataJSON to extract the challenge and verify origin
-      const clientDataRaw = atob(passkey.clientDataJSON);
-      const clientData = JSON.parse(clientDataRaw);
-
-      if (clientData.type !== "webauthn.get") {
-        return errorResponse("Invalid passkey assertion type");
-      }
-
-      // If challengeParams were provided, verify the challenge matches
-      if (challengeParams) {
-        const encoder = new TextEncoder();
-        const expectedData = encoder.encode(
-          `${challengeParams.listingId}:${challengeParams.wallet}:${challengeParams.amount}:${challengeParams.timestamp}`
-        );
-        const expectedHash = await crypto.subtle.digest("SHA-256", expectedData);
-        const expectedB64 = btoa(
-          String.fromCharCode(...new Uint8Array(expectedHash))
-        )
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=+$/, "");
-
-        if (clientData.challenge !== expectedB64) {
-          return errorResponse("Passkey challenge does not match transaction parameters");
-        }
-      }
-    } catch (err) {
-      console.error("Passkey verification error:", err);
-      return errorResponse("Invalid passkey assertion data");
-    }
-  }
+  // Note: Passkey verification removed — JWT auth (verifyAuth) now provides
+  // real authentication. The client-side biometric prompt remains as UX security.
+  // Passkey data in the request is accepted but not validated server-side.
 
   // 3. Look up the listing
   const { data: listing, error: listingError } = await supabase
@@ -886,98 +1015,9 @@ async function handleEscrowDeposit(body: {
   });
 }
 
-/**
- * POST /escrow/release
- *
- * Releases escrowed USDC to the seller after both parties confirm.
- * Called by the CLI's `niche confirm` when both confirmations are in.
- *
- * Body: { escrowId, sellerAddress, amount }
- */
-async function handleEscrowRelease(body: {
-  escrowId: string;
-  sellerAddress: string;
-  amount: number;
-}) {
-  const { escrowId, sellerAddress, amount } = body;
-
-  if (!escrowId || !sellerAddress || !amount) {
-    return errorResponse("Missing required fields: escrowId, sellerAddress, amount");
-  }
-
-  if (!ESCROW_WALLET_ID) {
-    return errorResponse("Escrow wallet not configured", 500);
-  }
-
-  // 1. Verify escrow exists and both parties confirmed
-  const { data: escrow, error: escrowError } = await supabase
-    .from("escrows")
-    .select("*")
-    .eq("id", escrowId)
-    .single();
-
-  if (escrowError || !escrow) {
-    return errorResponse("Escrow not found");
-  }
-
-  if (escrow.status !== "deposited") {
-    return errorResponse(`Escrow is not in deposited state (current: ${escrow.status})`);
-  }
-
-  if (!escrow.buyer_confirmed || !escrow.seller_confirmed) {
-    return errorResponse(
-      `Both parties must confirm. Buyer: ${escrow.buyer_confirmed ? "yes" : "no"}, Seller: ${escrow.seller_confirmed ? "yes" : "no"}`
-    );
-  }
-
-  // 2. Encode USDC transfer: escrow wallet -> seller
-  const transferData = encodeUsdcTransfer(sellerAddress, amount);
-
-  // 3. Execute from escrow wallet (app-owned, no user auth needed)
-  let txHash: string;
-  try {
-    const result = await privy.wallets().ethereum().sendTransaction(
-      ESCROW_WALLET_ID,
-      {
-        caip2: BASE_SEPOLIA_CAIP2,
-        params: {
-          transaction: {
-            to: USDC_CONTRACT,
-            data: transferData,
-            chain_id: BASE_SEPOLIA_CHAIN_ID,
-          },
-        },
-        sponsor: true,
-      }
-    );
-    txHash = result.hash;
-  } catch (err: any) {
-    console.error("On-chain release failed:", err);
-    return errorResponse(
-      `On-chain release failed: ${err?.message || "Unknown error"}`,
-      500
-    );
-  }
-
-  // 4. Update escrow and listing
-  await supabase
-    .from("escrows")
-    .update({
-      status: "released",
-      release_tx_hash: txHash,
-      confirmed_at: new Date().toISOString(),
-    })
-    .eq("id", escrowId);
-
-  await supabase
-    .from("listings")
-    .update({ status: "completed" })
-    .eq("id", escrow.listing_id);
-
-  console.log(`Escrow released: ${escrowId}, tx: ${txHash}`);
-
-  return json({ txHash });
-}
+// NOTE: handleEscrowRelease REMOVED — it accepted sellerAddress from the request
+// body (fund theft vector). Release is now handled exclusively by the seller
+// confirm flow in handleEscrowConfirm, which looks up the seller address from DB.
 
 /**
  * GET /escrow/:id
@@ -1109,19 +1149,7 @@ async function handleEscrowConfirm(body: {
       return errorResponse("Buyer must include remaining payment when confirming");
     }
 
-    // Verify passkey if provided
-    if (passkey) {
-      try {
-        const clientDataRaw = atob(passkey.clientDataJSON);
-        const clientData = JSON.parse(clientDataRaw);
-        if (clientData.type !== "webauthn.get") {
-          return errorResponse("Invalid passkey assertion type");
-        }
-      } catch (err) {
-        console.error("Passkey verification error:", err);
-        return errorResponse("Invalid passkey assertion data");
-      }
-    }
+    // Note: Passkey verification removed — JWT auth provides real authentication.
 
     // Update escrow: buyer confirmed + payment, status -> buyer_confirmed
     await supabase
@@ -1456,15 +1484,9 @@ async function handlePasskeyStatus(email: string) {
 
   const hasPasskey = !!(user.passkey_credential_id && user.passkey_public_key);
 
-  return json({
-    hasPasskey,
-    userId: user.id,
-    needsPasskey: !hasPasskey,
-    passkey: hasPasskey ? {
-      publicKey: user.passkey_public_key,
-      credentialId: user.passkey_credential_id
-    } : null
-  });
+  // Only return boolean — do not expose userId, publicKey, or credentialId
+  // to unauthenticated callers (prevents account enumeration)
+  return json({ hasPasskey });
 }
 
 /**
@@ -1474,36 +1496,28 @@ async function handlePasskeyStatus(email: string) {
  * This is for users who created accounts before passkey enforcement.
  */
 async function handleRegisterPasskey(body: {
-  email: string;
+  email?: string;
   passkey: { publicKey: string; credentialId: string };
+  _verifiedUserId?: string; // Injected by router from JWT auth
 }) {
-  const { email, passkey } = body;
+  const { passkey, _verifiedUserId } = body;
 
-  if (!email || !passkey?.publicKey || !passkey?.credentialId) {
-    return errorResponse("Missing email or passkey data");
+  if (!passkey?.publicKey || !passkey?.credentialId) {
+    return errorResponse("Missing passkey data");
   }
 
-  // First check if user exists
-  const { data: existingUser } = await supabase
-    .from("users")
-    .select("id")
-    .eq("channel_id", email)
-    .eq("channel_type", "email")
-    .single();
-
-  if (!existingUser) {
-    return errorResponse("User not found. Please complete signup first.", 404);
+  if (!_verifiedUserId) {
+    return errorResponse("Authentication required", 401);
   }
 
-  // Update the user's passkey info
+  // Update the verified user's passkey info
   const { error } = await supabase
     .from("users")
     .update({
       passkey_public_key: passkey.publicKey,
       passkey_credential_id: passkey.credentialId,
     })
-    .eq("channel_id", email)
-    .eq("channel_type", "email");
+    .eq("id", _verifiedUserId);
 
   if (error) {
     console.error("Failed to register passkey:", error);
@@ -2120,18 +2134,20 @@ async function handleTwilioSmsWebhook(req: Request) {
   // Twilio sends as application/x-www-form-urlencoded
   const rawBody = await req.text();
 
-  // Validate Twilio signature (skip if auth token not set, e.g. in dev)
-  if (TWILIO_AUTH_TOKEN) {
-    const valid = await validateTwilioSignature(req, rawBody);
-    if (!valid) {
-      console.error("[TWILIO] Invalid webhook signature");
-      return errorResponse("Invalid signature", 403);
-    }
+  // Validate Twilio signature — FAIL CLOSED if auth token not configured
+  if (!TWILIO_AUTH_TOKEN) {
+    console.error("[TWILIO] Auth token not configured, rejecting webhook");
+    return errorResponse("Twilio auth not configured", 500);
+  }
+  const twilioSigValid = await validateTwilioSignature(req, rawBody);
+  if (!twilioSigValid) {
+    console.error("[TWILIO] Invalid webhook signature");
+    return errorResponse("Invalid signature", 403);
   }
 
   const twimlEmpty = new Response(
     '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-    { headers: { ...corsHeaders, "Content-Type": "text/xml" } }
+    { headers: { ..._reqCorsHeaders, "Content-Type": "text/xml" } }
   );
 
   const params = new URLSearchParams(rawBody);
@@ -2262,24 +2278,40 @@ async function handleTwilioSmsWebhook(req: Request) {
 // --- Main Router ---
 
 Deno.serve(async (req: Request) => {
+  const origin = req.headers.get("Origin");
+  _reqCorsHeaders = getCorsHeaders(origin);
+
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: _reqCorsHeaders });
   }
 
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/niche-api/, ""); // strip function prefix
+  const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+
+  // Rate limiting
+  rateLimitCleanup();
+  if (path.startsWith("/auth/")) {
+    if (!checkRateLimit(`auth:${clientIp}`, 10, 60_000)) {
+      return errorResponse("Too many requests", 429);
+    }
+  } else if (path.startsWith("/webhooks/")) {
+    if (!checkRateLimit(`webhook:${clientIp}`, 60, 60_000)) {
+      return errorResponse("Too many requests", 429);
+    }
+  } else {
+    if (!checkRateLimit(`general:${clientIp}`, 120, 60_000)) {
+      return errorResponse("Too many requests", 429);
+    }
+  }
 
   try {
-    // Auth routes
+    // ===== PUBLIC AUTH ROUTES (no JWT required) =====
+
     if (req.method === "POST" && path === "/auth/lookup") {
       const body = await req.json();
       return await handleAuthLookup(body);
-    }
-
-    if (req.method === "POST" && path === "/auth/wallet") {
-      const body = await req.json();
-      return await handleAuthWallet(body);
     }
 
     if (req.method === "GET" && path === "/auth/passkey-status") {
@@ -2287,19 +2319,37 @@ Deno.serve(async (req: Request) => {
       return await handlePasskeyStatus(email);
     }
 
-    if (req.method === "POST" && path === "/auth/register-passkey") {
-      const body = await req.json();
-      return await handleRegisterPasskey(body);
-    }
-
     if (req.method === "POST" && path === "/auth/challenge") {
       const body = await req.json();
       return await handleAuthChallenge(body);
     }
 
-    // Webhook routes
-    if (req.method === "POST" && path === "/webhooks/privy/transaction") {
+    // ===== JWT-AUTHENTICATED AUTH ROUTES =====
+
+    if (req.method === "POST" && path === "/auth/wallet") {
+      const user = await requireAuth(req);
       const body = await req.json();
+      // Derive privyUserId from JWT, not from body
+      return await handleAuthWallet({ ...body, privyUserId: user.privy_user_id || (await verifyAuth(req)).privyUserId });
+    }
+
+    if (req.method === "POST" && path === "/auth/register-passkey") {
+      const user = await requireAuth(req);
+      const body = await req.json();
+      // Use verified user ID instead of trusting email from body
+      return await handleRegisterPasskey({ ...body, _verifiedUserId: user.id });
+    }
+
+    // ===== WEBHOOK ROUTES (signature-verified, no JWT) =====
+
+    if (req.method === "POST" && path === "/webhooks/privy/transaction") {
+      const rawBody = await req.text();
+      const valid = await verifyPrivyWebhookSignature(req, rawBody);
+      if (!valid) {
+        console.error("[PRIVY WEBHOOK] Invalid signature — rejecting");
+        return errorResponse("Invalid webhook signature", 403);
+      }
+      const body = JSON.parse(rawBody);
       return await handlePrivyTransactionWebhook(body);
     }
 
@@ -2307,72 +2357,90 @@ Deno.serve(async (req: Request) => {
       return await handleTwilioSmsWebhook(req);
     }
 
-    // Escrow routes
+    // ===== JWT-AUTHENTICATED ESCROW ROUTES =====
+
     if (req.method === "POST" && path === "/escrow/deposit") {
+      const user = await requireAuth(req);
       const body = await req.json();
-      return await handleEscrowDeposit(body);
+      // Override buyerWallet with verified user's wallet
+      return await handleEscrowDeposit({ ...body, buyerWallet: user.wallet_address });
     }
 
-    if (req.method === "POST" && path === "/escrow/release") {
-      const body = await req.json();
-      return await handleEscrowRelease(body);
-    }
+    // NOTE: POST /escrow/release REMOVED — fund theft vector.
+    // Release is handled by the seller confirm flow in handleEscrowConfirm.
 
     if (req.method === "POST" && path === "/escrow/confirm") {
+      const user = await requireAuth(req);
       const body = await req.json();
-      return await handleEscrowConfirm(body);
+      return await handleEscrowConfirm({ ...body, walletAddress: user.wallet_address });
     }
 
     if (req.method === "POST" && path === "/escrow/accept") {
+      const user = await requireAuth(req);
       const body = await req.json();
-      return await handleEscrowAccept(body);
+      return await handleEscrowAccept({ ...body, walletAddress: user.wallet_address });
     }
 
     if (req.method === "POST" && path === "/escrow/reject") {
+      const user = await requireAuth(req);
       const body = await req.json();
-      return await handleEscrowReject(body);
+      return await handleEscrowReject({ ...body, walletAddress: user.wallet_address });
     }
 
     if (req.method === "POST" && path === "/escrow/cancel") {
+      const user = await requireAuth(req);
       const body = await req.json();
-      return await handleEscrowCancel(body);
+      return await handleEscrowCancel({ ...body, walletAddress: user.wallet_address });
     }
 
     if (req.method === "POST" && path === "/escrow/dispute") {
+      const user = await requireAuth(req);
       const body = await req.json();
-      return await handleEscrowDispute(body);
+      return await handleEscrowDispute({ ...body, walletAddress: user.wallet_address });
     }
 
-    // POST /escrow/:id/meetup/phone — submit phone for SMS coordination
+    // POST /escrow/:id/meetup/phone — JWT required
     const meetupPhoneMatch = path.match(/^\/escrow\/([0-9a-f-]+)\/meetup\/phone$/);
     if (req.method === "POST" && meetupPhoneMatch) {
+      const user = await requireAuth(req);
       const body = await req.json();
-      return await handleMeetupPhone(meetupPhoneMatch[1], body);
+      return await handleMeetupPhone(meetupPhoneMatch[1], { ...body, walletAddress: user.wallet_address });
     }
 
-    // GET/POST /escrow/:id/messages
+    // GET/POST /escrow/:id/messages — JWT required
     const messagesMatch = path.match(/^\/escrow\/([0-9a-f-]+)\/messages$/);
     if (messagesMatch) {
+      const user = await requireAuth(req);
       if (req.method === "GET") {
-        const wallet = url.searchParams.get("wallet") || "";
-        return await handleGetMessages(messagesMatch[1], wallet);
+        return await handleGetMessages(messagesMatch[1], user.wallet_address);
       }
       if (req.method === "POST") {
         const body = await req.json();
-        return await handleSendMessage(messagesMatch[1], body);
+        return await handleSendMessage(messagesMatch[1], { ...body, walletAddress: user.wallet_address });
       }
     }
+
+    // ===== JWT-AUTHENTICATED DATA ROUTES =====
+
+    // GET /escrows — derive user_id from JWT
+    if (req.method === "GET" && path === "/escrows") {
+      const user = await requireAuth(req);
+      return await handleListEscrows(user.id);
+    }
+
+    // GET /wallet/balance/:walletId — verify caller owns wallet
+    const balanceMatch = path.match(/^\/wallet\/balance\/(.+)$/);
+    if (req.method === "GET" && balanceMatch) {
+      await requireAuth(req); // Must be authenticated (wallet ownership TBD)
+      return await handleGetWalletBalance(balanceMatch[1]);
+    }
+
+    // ===== PUBLIC READ ROUTES (no JWT) =====
 
     // GET /escrow/by-listing/:listingId
     const byListingMatch = path.match(/^\/escrow\/by-listing\/(.+)$/);
     if (req.method === "GET" && byListingMatch) {
       return await handleGetEscrowByListing(byListingMatch[1]);
-    }
-
-    // GET /escrows?user_id=...
-    if (req.method === "GET" && path === "/escrows") {
-      const userId = url.searchParams.get("user_id") || "";
-      return await handleListEscrows(userId);
     }
 
     // GET /escrow/:id
@@ -2381,14 +2449,12 @@ Deno.serve(async (req: Request) => {
       return await handleGetEscrow(escrowMatch[1]);
     }
 
-    // GET /wallet/balance/:walletId
-    const balanceMatch = path.match(/^\/wallet\/balance\/(.+)$/);
-    if (req.method === "GET" && balanceMatch) {
-      return await handleGetWalletBalance(balanceMatch[1]);
-    }
-
     return errorResponse("Not found", 404);
   } catch (err: any) {
+    // Auth errors → 401
+    if (err?.message?.includes("authentication") || err?.message?.includes("Authorization") || err?.message === "User not found") {
+      return errorResponse(err.message, 401);
+    }
     console.error("Unhandled error:", err);
     return errorResponse(err?.message || "Internal error", 500);
   }

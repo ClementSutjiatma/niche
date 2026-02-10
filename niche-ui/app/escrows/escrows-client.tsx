@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getAuth } from "@/lib/auth";
-import { API_BASE, SUPABASE_ANON_KEY, BASESCAN_TX_URL, formatDate } from "@/lib/api";
+import { BASESCAN_TX_URL, formatDate } from "@/lib/api";
+import { authedFetch } from "@/lib/authed-api";
 import type { Escrow } from "@/lib/types";
 
 const statusConfig: Record<
@@ -58,16 +59,7 @@ export function EscrowsClient() {
 
     async function fetchEscrows() {
       try {
-        const res = await fetch(
-          `${API_BASE}/escrows?user_id=${auth!.userId}`,
-          {
-            cache: "no-store",
-            headers: {
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-          }
-        );
+        const res = await authedFetch("/escrows", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch escrows");
         const data = await res.json();
         setEscrows(data.escrows || []);
